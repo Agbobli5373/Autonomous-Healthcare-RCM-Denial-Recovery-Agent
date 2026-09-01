@@ -18,6 +18,23 @@ uv run rcm-agent run
 Today that plays a scripted event sequence to exercise the run directory and the
 progress panel. Real work replaces it slice by slice.
 
+## The mock payer portal
+
+No payer portal permits automated access, and this project does not evade bot
+detection, so the demo drives a mock. Run it locally:
+
+```bash
+uv run rcm-agent serve-portal
+```
+
+It serves at <http://127.0.0.1:8080>; any user ID and password are accepted. The
+markup deliberately carries no `data-testid`, no stable `id` and no ARIA — hooks
+added by the mock's own author would prove nothing about operating software that
+was never built to be automated. Four frictions are equally deliberate: the
+worklist arrives by XHR, the claim the demo follows sits on page two, the EOB
+opens in a new tab as a download, and the session expires once on a claim-detail
+view so the agent has to sign in again.
+
 ## Where things are
 
 | | |
