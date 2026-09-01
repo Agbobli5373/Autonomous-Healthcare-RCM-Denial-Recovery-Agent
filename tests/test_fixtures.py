@@ -8,10 +8,9 @@ from pypdf import PdfReader
 
 from rcm_agent.claim_io import load_claim
 from rcm_agent.determination import determine
-from rcm_agent.fixtures import CLAIMS, generate_fixtures
-from rcm_agent.fixtures.generate import claim_json_path, document_path
+from rcm_agent.fixtures.generate import claim_json_path, document_path, generate_fixtures
 from rcm_agent.fixtures.render import wrap_descriptor
-from rcm_agent.fixtures.spec import ClaimSpec
+from rcm_agent.fixtures.spec import CLAIMS, ClaimSpec
 
 COMMITTED = Path(__file__).resolve().parent.parent / "data" / "fixtures"
 

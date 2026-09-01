@@ -34,6 +34,7 @@ from rcm_agent.events import EventStream
 from rcm_agent.run_directory import RunDirectory
 from rcm_agent.sandbox import (
     ProvisioningError,
+    Sandbox,
     extraction_script,
     guest_document_path,
     sandbox_session,
@@ -109,10 +110,21 @@ def _extraction_from(payload: dict[str, object]) -> Extraction:
 
 
 async def extract_document(
-    document: Path, run: RunDirectory, stream: EventStream
+    document: Path,
+    run: RunDirectory,
+    stream: EventStream,
+    *,
+    sandbox: Sandbox | None = None,
 ) -> tuple[Shipment, Extraction]:
-    api_key = credential("SOLARI_API_KEY")
+    """Extract one document, in a sandbox of its own or in one already open.
 
+    `sandbox` is how the demo keeps to a single guest. The Free tier allows one
+    concurrent sandbox and the mocks are being served from it, so creating a
+    second one here would collide with the first — the analysis has to be a
+    guest already running rather than a guest of its own. Passing one in means
+    the caller has already provisioned it and shipped the analysis code; the
+    branch below does both when it owns the sandbox.
+    """
     stream.emit(phase="analysis", kind="phase_start")
 
     retained = run.documents_path / document.name
@@ -129,23 +141,27 @@ async def extract_document(
         detail=shipment.as_event_detail(),
     )
 
+    async def analyse(guest: Sandbox) -> str:
+        await guest.upload(retained, shipment.remote_path)
+        stream.emit(phase="analysis", kind="tool_call", tool="extract_document")
+        return await guest.run(extraction_script(shipment.remote_path))
+
     try:
-        async with sandbox_session(api_key) as sandbox:
-            stream.emit(phase="analysis", kind="tool_call", tool="provision_sandbox")
-            provisioning = await sandbox.provision()
-            stream.emit(
-                phase="analysis",
-                kind="tool_result",
-                tool="provision_sandbox",
-                outcome="ok",
-                detail=provisioning.as_event_detail(),
-            )
-
-            await sandbox.upload_analysis_code(SOURCE_ROOT)
-            await sandbox.upload(retained, shipment.remote_path)
-
-            stream.emit(phase="analysis", kind="tool_call", tool="extract_document")
-            raw = await sandbox.run(extraction_script(shipment.remote_path))
+        if sandbox is not None:
+            raw = await analyse(sandbox)
+        else:
+            async with sandbox_session(credential("SOLARI_API_KEY")) as owned:
+                stream.emit(phase="analysis", kind="tool_call", tool="provision_sandbox")
+                provisioning = await owned.provision()
+                stream.emit(
+                    phase="analysis",
+                    kind="tool_result",
+                    tool="provision_sandbox",
+                    outcome="ok",
+                    detail=provisioning.as_event_detail(),
+                )
+                await owned.upload_analysis_code(SOURCE_ROOT)
+                raw = await analyse(owned)
     except ProvisioningError as exc:
         stream.emit(phase="analysis", kind="error", outcome="failed", detail={"error": str(exc)})
         raise ExtractionFailed(str(exc)) from exc
