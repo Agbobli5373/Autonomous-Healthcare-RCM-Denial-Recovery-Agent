@@ -5,6 +5,11 @@ description = "Autonomous agent that recovers denied medical claims by operating
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    # reportlab renders the synthetic remittances, and later the appeal PDF.
+    # Pillow draws and degrades the scanned fixture; reportlab pulls it in
+    # anyway, but a module under src/ imports it directly, so it is declared.
+    "pillow>=12.3.0",
+    "reportlab>=5.0.1",
     "rich>=13.7",
 ]
 
@@ -26,6 +31,9 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "pyright>=1.1.380",
+    # Reads the generated PDFs back in tests, to prove the text layer is
+    # there in two of them and absent in the third.
+    "pypdf>=6.16.2",
 ]
 
 [build-system]

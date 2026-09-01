@@ -14,6 +14,7 @@ from rcm_agent.claim_io import ClaimFileError, load_claim
 from rcm_agent.determination import determine
 from rcm_agent.domain import Determination
 from rcm_agent.events import EventStream
+from rcm_agent.fixtures import generate_fixtures
 from rcm_agent.matrix import ClaimMatrix
 from rcm_agent.panel import make_panel
 from rcm_agent.run_directory import RunDirectory
@@ -52,6 +53,16 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("runs"),
         help="Where run directories are written (default: ./runs)",
+    )
+
+    fixtures = sub.add_parser(
+        "generate-fixtures", help="Regenerate the synthetic claims and remittance documents"
+    )
+    fixtures.add_argument(
+        "--out",
+        type=Path,
+        default=Path("data/fixtures"),
+        help="Where fixtures are written (default: ./data/fixtures)",
     )
     return parser
 
@@ -154,10 +165,19 @@ def determine_command(claim_path: Path, runs_dir: Path) -> int:
     return 0
 
 
+def generate_fixtures_command(out: Path) -> int:
+    console = Console()
+    for path in generate_fixtures(out):
+        console.print(str(path), style="dim")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "determine":
         return determine_command(args.claim, args.runs_dir)
+    if args.command == "generate-fixtures":
+        return generate_fixtures_command(args.out)
     return run_command(args.runs_dir, plain=args.plain, step_delay=args.step_delay)
 
 
