@@ -71,6 +71,37 @@ this repository rather than from whoever last signed on by hand. It contains no
 secret: the session id it carries is a constant in the source, and the system it
 opens holds only synthetic records.
 
+### Serving them from a Solari sandbox
+
+The demo does not run the mocks on localhost. It uploads the working copy into a
+sandbox, serves both there, and exposes each port with `preview_url` — no tunnel,
+no PaaS, no deploy step:
+
+```bash
+uv run rcm-agent host-mocks
+```
+
+That prints a public URL for each mock and holds them up until you interrupt it.
+It needs `SOLARI_API_KEY` in a gitignored `.env`.
+
+**One sandbox does all three jobs** — both mocks and the analysis kernel, which
+runs on a real EOB before the URLs are handed over. The Free tier allows one
+concurrent sandbox and the agent visits the practice-management system while the
+kernel is still needed, so this is forced by the plan rather than chosen.
+
+If a run is killed rather than interrupted, its sandbox can keep the only slot
+for far longer than the ten-minute TTL suggests, and the next run then fails at
+`create`. See the `SANDBOX_TTL_MS` docstring for how to end an orphan.
+
+The servers are health-checked *from inside the sandbox* before any URL is
+handed out. A browser pointed at a port that has not finished binding fails in a
+way that reads as a platform fault rather than as a race, and the recorded run
+has to be unbroken.
+
+The preview URL carries an access token in its query string. It is printed to
+the terminal, because that is what you open — but the run directory records the
+URL without it.
+
 ## Where things are
 
 | | |

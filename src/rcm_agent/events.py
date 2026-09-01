@@ -17,8 +17,15 @@ from typing import Any, Literal, Protocol
 
 log = logging.getLogger(__name__)
 
-Phase = Literal["portal", "analysis", "emr", "appeal", "report"]
-"""Phases are named by role, not by Solari primitive."""
+Phase = Literal["setup", "portal", "analysis", "emr", "appeal", "report"]
+"""Phases are named by role, not by Solari primitive.
+
+`setup` is the odd one and is deliberately run-level: standing the mocks up in a
+sandbox happens once, for the whole run, rather than once per claim. It is not in
+`matrix.PHASES` for that reason - the matrix is a grid of claims against the work
+done on each, and a column every claim shares tells the viewer nothing. Its
+events still reach the run directory, which is where the preview URLs belong.
+"""
 
 Kind = Literal[
     "phase_start",

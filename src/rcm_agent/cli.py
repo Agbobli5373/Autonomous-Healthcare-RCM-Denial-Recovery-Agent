@@ -15,20 +15,26 @@ from rich.table import Table
 from rcm_agent import demo_script
 from rcm_agent.analysis.extract import Extraction
 from rcm_agent.claim_io import load_claim
+from rcm_agent.config import MissingCredential
 from rcm_agent.determination import determine
 from rcm_agent.domain import Determination
 from rcm_agent.events import EventStream
-from rcm_agent.fixtures import generate_fixtures
+from rcm_agent.fixtures.generate import generate_fixtures
 from rcm_agent.matrix import ClaimMatrix
 from rcm_agent.panel import make_panel
 from rcm_agent.run_directory import RunDirectory
-from rcm_agent.sandbox_extraction import ExtractionFailed, extract_document
+from rcm_agent.sandbox import ProvisioningError, ServerStartupError, UploadFailed
+from rcm_agent.sandbox_extraction import SOURCE_ROOT, ExtractionFailed, extract_document
+from rcm_agent.sandbox_hosting import hosted_mocks, keep_alive
 from rcm_agent.strict_json import RecordFileError
 
 if TYPE_CHECKING:  # imported lazily at run time so `--help` stays fast
     from fastapi import FastAPI
 
 EXIT_BAD_INPUT = 2
+EXIT_ENVIRONMENT = 3
+"""The request was fine; the environment could not carry it out."""
+
 EXIT_INTERRUPTED = 130
 
 
@@ -82,6 +88,23 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     practice.add_argument("--host", default="127.0.0.1")
     practice.add_argument("--port", type=int, default=8081)
+
+    host = sub.add_parser(
+        "host-mocks",
+        help="Serve both mocks from a Solari sandbox and print their public URLs",
+    )
+    host.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=Path("runs"),
+        help="Where run directories are written (default: ./runs)",
+    )
+    host.add_argument(
+        "--document",
+        type=Path,
+        default=Path("data/fixtures/eobs/clm-2026-0001-eob.pdf"),
+        help="The EOB the analysis kernel reads, to prove one sandbox does all three jobs",
+    )
 
     profile = sub.add_parser(
         "practice-storage-state",
@@ -279,6 +302,65 @@ def serve_practice_command(host: str, port: int) -> int:
     return _serve(create_app(), host, port)
 
 
+def host_mocks_command(runs_dir: Path, document: Path) -> int:
+    """Bring both mocks up in one sandbox and hold them there until interrupted.
+
+    The analysis kernel runs in that same guest, on a real document, before the
+    mocks are handed over. Provisioning it was not enough: the arrangement the
+    Free tier forces on the demo is one sandbox serving both mocks *and* running
+    the kernel, and only running it proves the three coexist. An earlier version
+    provisioned the kernel here while the only code that ran one opened a second
+    sandbox — which on this tier is the collision this command exists to avoid.
+    """
+    console = Console()
+    run = RunDirectory.create(runs_dir, started_at=datetime.now(UTC))
+    stream = EventStream()
+    stream.add_sink(run)
+
+    async def serve() -> None:
+        async with hosted_mocks(stream) as hosting:
+            for mock in hosting.mocks:
+                console.print(f"{mock.name:22} [link={mock.url}]{mock.url}[/link]")
+
+            console.print("provisioning the analysis kernel in the same sandbox...", style="dim")
+            provisioning = await hosting.sandbox.provision()
+            await hosting.sandbox.upload_analysis_code(SOURCE_ROOT)
+            console.print(f"kernel ready (tesseract at {provisioning.tesseract_path})")
+
+            _, extraction = await extract_document(document, run, stream, sandbox=hosting.sandbox)
+            console.print(
+                f"kernel read {document.name} by {extraction.method}: "
+                f"{len(extraction.lines)} adjustments, while both mocks were served"
+            )
+
+            console.print("\nserving. press ctrl-c to tear down.", style="dim")
+            # Not a plain sleep: the sandbox TTL is a rolling idle window, so a
+            # host that does nothing lets the mocks expire underneath itself.
+            await keep_alive(hosting.sandbox)
+
+    with run:
+        try:
+            asyncio.run(serve())
+        except KeyboardInterrupt:
+            console.print(f"\ntorn down - run at {run.path}")
+            return EXIT_INTERRUPTED
+        except MissingCredential as exc:
+            # No key configured is bad input. The two below are not: the request
+            # was fine and the environment could not carry it out.
+            console.print(f"[bold red]{exc}[/]")
+            return EXIT_BAD_INPUT
+        except (ServerStartupError, ProvisioningError, UploadFailed, ExtractionFailed) as exc:
+            # Reported as a message rather than re-raised, because the whole
+            # point of the in-guest health check is that a server which never
+            # bound gets named here instead of surfacing as a browser error
+            # later. `run.fail` sits inside the `with`, or it would be recording
+            # against a run directory that has already been closed.
+            console.print(f"[bold red]could not host the mocks[/] {exc}")
+            run.fail(phase="setup", seq=run.last_seq, finished_at=datetime.now(UTC))
+            return EXIT_ENVIRONMENT
+    return 0
+
+
 def practice_storage_state_command(url: str, out: Path) -> int:
     """Write the profile that lets the demo skip a login it has nothing to show.
 
@@ -310,6 +392,8 @@ def main(argv: list[str] | None = None) -> int:
         return serve_portal_command(args.host, args.port)
     if args.command == "serve-practice":
         return serve_practice_command(args.host, args.port)
+    if args.command == "host-mocks":
+        return host_mocks_command(args.runs_dir, args.document)
     if args.command == "practice-storage-state":
         return practice_storage_state_command(args.url, args.out)
     if args.command == "generate-fixtures":
