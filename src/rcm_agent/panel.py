@@ -60,7 +60,16 @@ class Glyphs:
     recovery: str
 
     def cell(self, state: CellState) -> str:
-        return getattr(self, state)  # pyright: ignore[reportAny]
+        return self.by_state()[state]
+
+    def by_state(self) -> dict[CellState, str]:
+        return {
+            "pending": self.pending,
+            "running": self.running,
+            "done": self.done,
+            "na": self.na,
+            "failed": self.failed,
+        }
 
 
 UNICODE_GLYPHS = Glyphs(pending="·", running="●", done="✓", na="n/a", failed="✗", recovery="↻")
@@ -197,8 +206,11 @@ class PlainPanel:
         return None
 
 
-def make_panel(matrix: ClaimMatrix, console: Console | None = None) -> ProgressPanel:
+def make_panel(
+    matrix: ClaimMatrix, console: Console | None = None, *, force_plain: bool = False
+) -> ProgressPanel:
+    """Live panel for a terminal, line-per-event for anything else."""
     console = console or Console()
-    if console.is_terminal:
-        return RichPanel(matrix, console)
-    return PlainPanel(matrix, console)
+    if force_plain or not console.is_terminal:
+        return PlainPanel(matrix, console)
+    return RichPanel(matrix, console)

@@ -11,7 +11,7 @@ from rich.console import Console
 from rcm_agent import demo_script
 from rcm_agent.events import EventStream
 from rcm_agent.matrix import ClaimMatrix
-from rcm_agent.panel import PlainPanel, make_panel
+from rcm_agent.panel import make_panel
 from rcm_agent.run_directory import RunDirectory
 
 
@@ -41,7 +41,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def run_command(runs_dir: Path, *, plain: bool, step_delay: float) -> int:
     console = Console()
     matrix = ClaimMatrix(demo_script.CLAIM_IDS)
-    panel = PlainPanel(matrix, console) if plain else make_panel(matrix, console)
+    panel = make_panel(matrix, console, force_plain=plain)
 
     run = RunDirectory.create(runs_dir, started_at=datetime.now(UTC))
     stream = EventStream()
@@ -55,23 +55,37 @@ def run_command(runs_dir: Path, *, plain: bool, step_delay: float) -> int:
     try:
         with run, panel:
             demo_script.play(stream, step_delay=step_delay)
-            run.complete(finished_at=datetime.now(UTC), summary=demo_script.SUMMARY)
-            panel.freeze(summary=demo_script.SUMMARY, run_path=run.path)
+            # Derived from the events, so the closing frame and run.json cannot
+            # claim an outcome the stream did not record.
+            summary = matrix.summary()
+            run.complete(finished_at=datetime.now(UTC), summary=summary)
+            panel.freeze(summary=summary, run_path=run.path)
     except KeyboardInterrupt:
         # The artifacts already tell the truth — events are flushed per event and
         # run.json still says "running" with the phase it reached. Nothing to
         # repair, so say where to look and get out of the way.
         console.print(f"\ninterrupted — partial run at {run.path}")
         return 130
+    except Exception:
+        # Without this the run stays "running" for ever and the `failed` status
+        # is unreachable outside tests. Record where it stopped, then re-raise
+        # so the traceback is not swallowed.
+        run.fail(
+            phase=run.state.current_phase or "portal",
+            seq=run.last_seq,
+            finished_at=datetime.now(UTC),
+        )
+        console.print(f"\nfailed - partial run at {run.path}")
+        raise
 
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    if args.command == "run":
-        return run_command(args.runs_dir, plain=args.plain, step_delay=args.step_delay)
-    return 2
+    # argparse enforces required=True on the subcommand, so there is no other
+    # branch left to guard.
+    return run_command(args.runs_dir, plain=args.plain, step_delay=args.step_delay)
 
 
 if __name__ == "__main__":  # pragma: no cover

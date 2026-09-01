@@ -101,7 +101,7 @@ def test_not_applicable_renders_differently_from_pending() -> None:
     stream = EventStream(clock=lambda: datetime(2026, 9, 1, tzinfo=UTC))
     stream.add_sink(matrix)
     stream.emit(
-        phase="analysis", kind="determination", claim_id="CLM-0002", detail={"action": "decline"}
+        phase="analysis", kind="determination", claim_id="CLM-0002", detail={"action": "close"}
     )
 
     buffer = io.StringIO()

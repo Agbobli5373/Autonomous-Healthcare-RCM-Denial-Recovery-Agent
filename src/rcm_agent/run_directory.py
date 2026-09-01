@@ -10,8 +10,9 @@ partial-progress requirement, and the part most easily skipped.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, TextIO
 
@@ -26,9 +27,20 @@ def _no_summary() -> dict[str, int]:
     return {}
 
 
+def _write_atomically(destination: Path, payload: str) -> None:
+    staging = destination.with_name(f".{destination.name}.tmp")
+    staging.write_text(payload, encoding="utf-8")
+    os.replace(staging, destination)
+
+
 def _directory_stamp(moment: datetime) -> str:
-    """ISO 8601 with a dash-separated time — colons are illegal in Windows paths."""
-    return moment.strftime("%Y-%m-%dT%H-%M-%SZ")
+    """ISO 8601 with a dash-separated time — colons are illegal in Windows paths.
+
+    Normalised to UTC first: the trailing Z is a claim about the timezone, and
+    stamping it on a local-time value would make the directory name disagree
+    with the `started_at` recorded beside it.
+    """
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +80,7 @@ class RunDirectory:
     def __init__(self, path: Path, state: RunState) -> None:
         self.path = path
         self.state = state
+        self._last_seq = 0
         self._events: TextIO = self.events_path.open("a", encoding="utf-8", newline="\n")
 
     @classmethod
@@ -76,7 +89,6 @@ class RunDirectory:
         path = cls._reserve(root, started_at)
         for name in _SUBDIRECTORIES:
             (path / name).mkdir()
-        (path / "events.ndjson").touch()
 
         run = cls(path, RunState(run_id=path.name, started_at=started_at.isoformat()))
         run.write_state()
@@ -116,7 +128,13 @@ class RunDirectory:
     def documents_path(self) -> Path:
         return self.path / "documents"
 
+    @property
+    def last_seq(self) -> int:
+        """Sequence number of the last event written — what `fail()` points at."""
+        return self._last_seq
+
     def handle(self, event: Event) -> None:
+        self._last_seq = event.seq
         self._events.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
         # Flushed per event on purpose: a hard kill must not lose what a buffer
         # was still holding. These are small writes and there are few of them.
@@ -127,9 +145,12 @@ class RunDirectory:
             self.write_state()
 
     def write_state(self) -> None:
-        self.run_json_path.write_text(
+        # Written atomically. `write_text` truncates before writing, so a kill
+        # landing in that window leaves a corrupt run.json — in the one
+        # requirement that is specifically about surviving kills.
+        _write_atomically(
+            self.run_json_path,
             json.dumps(self.state.to_dict(), indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
         )
 
     def complete(self, *, finished_at: datetime, summary: dict[str, int] | None = None) -> None:

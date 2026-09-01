@@ -41,7 +41,7 @@ def test_phase_end_marks_a_claim_done() -> None:
 
 
 def test_a_guardrailed_determination_marks_later_phases_not_applicable() -> None:
-    """The declined claim showing n/a is the discrimination story rendering itself."""
+    """The closed claim showing n/a is the discrimination story rendering itself."""
     matrix = ClaimMatrix(CLAIMS)
     stream = stream_into(matrix)
 
@@ -49,7 +49,7 @@ def test_a_guardrailed_determination_marks_later_phases_not_applicable() -> None
         phase="analysis",
         kind="determination",
         claim_id="CLM-0002",
-        detail={"action": "decline", "guardrail": "MA130"},
+        detail={"action": "close", "guardrail": "MA130"},
     )
 
     assert matrix.cell("CLM-0002", "emr") == "na"
@@ -61,7 +61,7 @@ def test_not_applicable_is_distinct_from_pending() -> None:
     stream = stream_into(matrix)
 
     stream.emit(
-        phase="analysis", kind="determination", claim_id="CLM-0002", detail={"action": "decline"}
+        phase="analysis", kind="determination", claim_id="CLM-0002", detail={"action": "close"}
     )
 
     assert matrix.cell("CLM-0002", "emr") == "na"
@@ -122,6 +122,38 @@ def test_events_without_a_claim_do_not_disturb_the_matrix() -> None:
     stream.emit(phase="report", kind="phase_start")
 
     assert all(matrix.cell(c, "report") == "pending" for c in CLAIMS)
+
+
+def test_summary_counts_actions_seen_in_the_stream() -> None:
+    """The closing frame reads this, so it must come from events, not a constant."""
+    matrix = ClaimMatrix(CLAIMS)
+    stream = stream_into(matrix)
+
+    stream.emit(
+        phase="analysis", kind="determination", claim_id="CLM-0001", detail={"action": "appeal"}
+    )
+    stream.emit(
+        phase="analysis", kind="determination", claim_id="CLM-0002", detail={"action": "close"}
+    )
+    stream.emit(
+        phase="analysis", kind="determination", claim_id="CLM-0003", detail={"action": "rebill"}
+    )
+
+    assert matrix.summary() == {"appeal": 1, "close": 1, "rebill": 1}
+
+
+def test_summary_is_empty_before_anything_is_decided() -> None:
+    assert ClaimMatrix(CLAIMS).summary() == {}
+
+
+def test_a_determination_without_an_action_is_ignored() -> None:
+    matrix = ClaimMatrix(CLAIMS)
+    stream = stream_into(matrix)
+
+    stream.emit(phase="analysis", kind="determination", claim_id="CLM-0001", detail={})
+
+    assert matrix.summary() == {}
+    assert matrix.action_for("CLM-0001") is None
 
 
 def test_unknown_claims_are_ignored_rather_than_crashing() -> None:

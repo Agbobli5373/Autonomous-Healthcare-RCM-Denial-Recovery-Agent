@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 from rcm_agent.events import EventStream
@@ -82,12 +82,12 @@ def test_events_are_readable_before_the_run_ends(tmp_path: Path) -> None:
 def test_completing_records_status_and_finish_time(tmp_path: Path) -> None:
     run = make(tmp_path)
 
-    run.complete(finished_at=FINISHED, summary={"appealed": 1, "declined": 1, "rebilled": 1})
+    run.complete(finished_at=FINISHED, summary={"appeal": 1, "close": 1, "rebill": 1})
 
     state = read_run_json(run)
     assert state["status"] == "completed"
     assert state["finished_at"] == "2026-09-01T14:24:09+00:00"
-    assert state["summary"] == {"appealed": 1, "declined": 1, "rebilled": 1}
+    assert state["summary"] == {"appeal": 1, "close": 1, "rebill": 1}
     assert state["failed_at"] is None
 
 
@@ -115,6 +115,37 @@ def test_run_json_is_rewritten_at_each_phase_transition(tmp_path: Path) -> None:
 
     stream.emit(phase="analysis", kind="phase_start")
     assert read_run_json(run)["current_phase"] == "analysis"
+
+
+def test_a_non_utc_start_is_normalised_before_stamping(tmp_path: Path) -> None:
+    """The trailing Z is a claim about the timezone, so it must not be stamped on local time."""
+    kolkata = timezone(timedelta(hours=5, minutes=30))
+    started = datetime(2026, 9, 1, 19, 52, 3, tzinfo=kolkata)  # 14:22:03 UTC
+
+    run = RunDirectory.create(tmp_path / "runs", started_at=started)
+
+    assert run.path.name == "2026-09-01T14-22-03Z"
+
+
+def test_the_staging_file_does_not_survive_a_write(tmp_path: Path) -> None:
+    run = make(tmp_path)
+
+    run.write_state()
+
+    assert list(run.path.glob(".*tmp*")) == []
+    assert run.run_json_path.is_file()
+
+
+def test_last_seq_tracks_the_most_recent_event(tmp_path: Path) -> None:
+    run = make(tmp_path)
+    stream = EventStream(clock=lambda: STARTED)
+    stream.add_sink(run)
+
+    assert run.last_seq == 0
+    stream.emit(phase="portal", kind="phase_start")
+    stream.emit(phase="portal", kind="tool_call", tool="log_in")
+
+    assert run.last_seq == 2
 
 
 def test_concurrent_runs_get_distinct_directories(tmp_path: Path) -> None:

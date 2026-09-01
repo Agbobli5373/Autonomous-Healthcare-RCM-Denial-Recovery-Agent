@@ -13,7 +13,7 @@ import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol
 
 log = logging.getLogger(__name__)
 
@@ -75,7 +75,6 @@ class Event:
         }
 
 
-@runtime_checkable
 class EventSink(Protocol):
     def handle(self, event: Event) -> None: ...
 

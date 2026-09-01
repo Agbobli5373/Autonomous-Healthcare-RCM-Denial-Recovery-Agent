@@ -4,9 +4,9 @@ This exists only so the skeleton has something to render and record. Every later
 ticket replaces a slice of it with real work; when the last one lands this module
 goes away.
 
-It deliberately exercises the awkward cases rather than a clean path: a
-guardrailed decline that never reaches the appeal, a rebill that skips the EMR,
-and a session expiry the agent recovers from.
+It deliberately exercises the awkward cases rather than a clean path: a claim
+guardrailed to `close` that never reaches the appeal, a rebill that skips the
+EMR, and a session expiry the agent recovers from.
 """
 
 from __future__ import annotations
@@ -20,11 +20,9 @@ CLAIM_IDS = ("CLM-0001", "CLM-0002", "CLM-0003")
 
 _DETERMINATIONS: dict[str, dict[str, str]] = {
     "CLM-0001": {"action": "appeal", "reason": "CO-197 prior authorization on file"},
-    "CLM-0002": {"action": "decline", "guardrail": "MA130", "reason": "no appeal rights"},
+    "CLM-0002": {"action": "close", "guardrail": "MA130", "reason": "no appeal rights"},
     "CLM-0003": {"action": "rebill", "reason": "OA-22 coordination of benefits"},
 }
-
-SUMMARY = {"appealed": 1, "declined": 1, "rebilled": 1}
 
 
 def _steps(stream: EventStream) -> Iterator[None]:
