@@ -6,5 +6,6 @@
 *.jpg binary
 *.ndjson -text
 
-# Generated and reviewed as text, but never hand-edited.
-uv.lock -diff
+# uv.lock is deliberately NOT marked -diff. A lockfile diff is noisy, but it is
+# also the place an unexpected dependency change shows up, and hiding it would
+# remove the one review surface where that is visible.
