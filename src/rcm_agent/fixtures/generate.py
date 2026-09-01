@@ -9,16 +9,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from rcm_agent.fixtures.naming import claim_filename, eob_filename
 from rcm_agent.fixtures.render import render_scan, render_text_layer
 from rcm_agent.fixtures.spec import CLAIMS, ClaimSpec
 
 
 def claim_json_path(root: Path, claim: ClaimSpec) -> Path:
-    return root / "claims" / f"{claim.slug}.json"
+    return root / "claims" / claim_filename(claim.claim_id)
 
 
 def document_path(root: Path, claim: ClaimSpec) -> Path:
-    return root / "eobs" / f"{claim.slug}-eob.pdf"
+    return root / "eobs" / eob_filename(claim.claim_id)
 
 
 def _write_claim(root: Path, claim: ClaimSpec) -> Path:

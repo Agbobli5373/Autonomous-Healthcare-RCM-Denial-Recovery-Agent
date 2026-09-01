@@ -67,8 +67,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Where run directories are written (default: ./runs)",
     )
 
+    portal = sub.add_parser("serve-portal", help="Run the mock payer portal locally")
+    portal.add_argument("--host", default="127.0.0.1")
+    portal.add_argument("--port", type=int, default=8080)
+
     fixtures = sub.add_parser(
-        "generate-fixtures", help="Regenerate the synthetic claims and remittance documents"
+        "generate-fixtures", help="Regenerate the synthetic claims and EOB documents"
     )
     fixtures.add_argument(
         "--out",
@@ -228,6 +232,15 @@ def extract_command(document: Path, runs_dir: Path) -> int:
     return 0
 
 
+def serve_portal_command(host: str, port: int) -> int:
+    import uvicorn
+
+    from rcm_agent.mocks.portal import create_app
+
+    uvicorn.run(create_app(), host=host, port=port, log_level="warning")
+    return 0
+
+
 def generate_fixtures_command(out: Path) -> int:
     console = Console()
     for path in generate_fixtures(out):
@@ -241,6 +254,8 @@ def main(argv: list[str] | None = None) -> int:
         return determine_command(args.claim, args.runs_dir)
     if args.command == "extract":
         return extract_command(args.document, args.runs_dir)
+    if args.command == "serve-portal":
+        return serve_portal_command(args.host, args.port)
     if args.command == "generate-fixtures":
         return generate_fixtures_command(args.out)
     return run_command(args.runs_dir, plain=args.plain, step_delay=args.step_delay)
