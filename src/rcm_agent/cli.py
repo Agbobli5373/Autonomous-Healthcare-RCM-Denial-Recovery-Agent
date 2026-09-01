@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rcm_agent import demo_script
+from rcm_agent.analysis.extract import Extraction
 from rcm_agent.claim_io import ClaimFileError, load_claim
 from rcm_agent.determination import determine
 from rcm_agent.domain import Determination
@@ -18,6 +20,7 @@ from rcm_agent.fixtures import generate_fixtures
 from rcm_agent.matrix import ClaimMatrix
 from rcm_agent.panel import make_panel
 from rcm_agent.run_directory import RunDirectory
+from rcm_agent.sandbox_extraction import ExtractionFailed, extract_document
 
 EXIT_BAD_INPUT = 2
 EXIT_INTERRUPTED = 130
@@ -49,6 +52,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     determine_claim.add_argument("claim", type=Path, help="Path to a claim JSON file")
     determine_claim.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=Path("runs"),
+        help="Where run directories are written (default: ./runs)",
+    )
+
+    extract_doc = sub.add_parser("extract", help="Read an EOB document in a Solari sandbox")
+    extract_doc.add_argument("document", type=Path, help="Path to an EOB PDF")
+    extract_doc.add_argument(
         "--runs-dir",
         type=Path,
         default=Path("runs"),
@@ -165,6 +177,57 @@ def determine_command(claim_path: Path, runs_dir: Path) -> int:
     return 0
 
 
+def _extraction_table(extraction: Extraction) -> Table:
+    table = Table(box=None, pad_edge=False)
+    table.add_column("line", style="dim", no_wrap=True)
+    table.add_column("hcpcs", no_wrap=True)
+    table.add_column("adjustment", no_wrap=True)
+    table.add_column("remarks", no_wrap=True)
+    table.add_column("amount", justify="right", no_wrap=True)
+    for line in extraction.lines:
+        table.add_row(
+            str(line.line_number or "-"),
+            line.procedure_code or "-",
+            f"{line.group}-{line.reason_code}",
+            ", ".join(line.remark_codes) or "-",
+            line.amount,
+        )
+    return table
+
+
+def extract_command(document: Path, runs_dir: Path) -> int:
+    console = Console()
+    if not document.is_file():
+        console.print(f"[bold red]no such document[/] {document}")
+        return EXIT_BAD_INPUT
+
+    run = RunDirectory.create(runs_dir, started_at=datetime.now(UTC))
+    stream = EventStream()
+    stream.add_sink(run)
+
+    try:
+        with run:
+            shipment, extraction = asyncio.run(extract_document(document, run, stream))
+            run.complete(
+                finished_at=datetime.now(UTC),
+                summary={extraction.method: len(extraction.lines)},
+            )
+    except ExtractionFailed as exc:
+        run.fail(
+            phase=run.state.current_phase or "analysis",
+            seq=run.last_seq,
+            finished_at=datetime.now(UTC),
+        )
+        console.print(f"[bold red]extraction failed[/] {exc}")
+        console.print(str(run.path), style="dim")
+        return EXIT_BAD_INPUT
+
+    console.print(_extraction_table(extraction))
+    console.print(f"read by {extraction.method}, sha256 {shipment.digest[:16]}...", style="dim")
+    console.print(str(run.path), style="dim")
+    return 0
+
+
 def generate_fixtures_command(out: Path) -> int:
     console = Console()
     for path in generate_fixtures(out):
@@ -176,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "determine":
         return determine_command(args.claim, args.runs_dir)
+    if args.command == "extract":
+        return extract_command(args.document, args.runs_dir)
     if args.command == "generate-fixtures":
         return generate_fixtures_command(args.out)
     return run_command(args.runs_dir, plain=args.plain, step_delay=args.step_delay)
