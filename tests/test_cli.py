@@ -70,6 +70,72 @@ def test_a_failed_run_keeps_the_events_it_emitted(
     assert len([line for line in events.splitlines() if line.strip()]) == 2
 
 
+CLAIM: dict[str, object] = {
+    "claim_id": "CLM-0001",
+    "payer": "Demo Health Plan",
+    "patient_id": "PAT-1",
+    "date_of_service": "2026-03-14",
+    "service_lines": [
+        {
+            "line_number": 1,
+            "procedure_code": "E1390",
+            "charge": "450.00",
+            "adjustments": [
+                {"group": "CO", "reason_code": "197", "amount": "450.00", "remark_codes": ["N706"]}
+            ],
+        }
+    ],
+}
+
+
+def write_claim(tmp_path: Path, claim: dict[str, object]) -> Path:
+    path = tmp_path / "claim.json"
+    path.write_text(json.dumps(claim), encoding="utf-8")
+    return path
+
+
+def read_events(runs_dir: Path) -> list[dict[str, object]]:
+    text = (only_run_directory(runs_dir) / "events.ndjson").read_text(encoding="utf-8")
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def test_determine_emits_a_determination_event(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+
+    assert cli.determine_command(write_claim(tmp_path, CLAIM), runs) == 0
+
+    determinations = [e for e in read_events(runs) if e["kind"] == "determination"]
+    assert len(determinations) == 1
+    detail = determinations[0]["detail"]
+    assert isinstance(detail, dict)
+    assert detail["action"] == "appeal"
+    assert determinations[0]["claim_id"] == "CLM-0001"
+
+
+def test_determine_records_a_guardrail_in_the_event(tmp_path: Path) -> None:
+    claim = json.loads(json.dumps(CLAIM))
+    claim["service_lines"][0]["adjustments"][0]["remark_codes"] = ["MA130"]
+    runs = tmp_path / "runs"
+
+    cli.determine_command(write_claim(tmp_path, claim), runs)
+
+    determination = next(e for e in read_events(runs) if e["kind"] == "determination")
+    detail = determination["detail"]
+    assert isinstance(detail, dict)
+    assert detail["action"] == "close"
+    assert detail["guardrail"] == "unappealable-remark:MA130"
+    assert detail["priority"] is None
+
+
+def test_determine_rejects_an_unreadable_claim_without_writing_a_run(tmp_path: Path) -> None:
+    bad = tmp_path / "claim.json"
+    bad.write_text("{ not json", encoding="utf-8")
+    runs = tmp_path / "runs"
+
+    assert cli.determine_command(bad, runs) == 2
+    assert not runs.exists()
+
+
 def test_no_staging_file_is_left_behind(tmp_path: Path) -> None:
     """run.json is written via a temp file and renamed; the temp must not survive."""
     runs = tmp_path / "runs"
