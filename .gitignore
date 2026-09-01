@@ -72,3 +72,11 @@ desktop.ini
 # Agent scratch
 # ---------------------------------------------------------------------------
 .scratch/
+
+# ---------------------------------------------------------------------------
+# Run artifacts
+#
+# Every run writes a directory here. One example run gets committed later under
+# an explicitly tracked path; the rest are local noise.
+# ---------------------------------------------------------------------------
+runs/

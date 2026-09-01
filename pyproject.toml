@@ -1,0 +1,59 @@
+[project]
+name = "rcm-agent"
+version = "0.1.0"
+description = "Autonomous agent that recovers denied medical claims by operating payer and practice-management software"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+# The throwaway Solari smoke-test spike under spikes/. Not needed to run the
+# agent; kept so `uv sync --extra spike` reproduces the environment it was
+# written against. Pinned exactly — the SDKs are all 0.x and moving.
+spike = [
+    "solari-browser==0.1.3",
+    "solari-sandbox==0.2.0",
+    "solari-desktop==0.2.0",
+]
+
+[project.scripts]
+rcm-agent = "rcm_agent.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "pyright>=1.1.380",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rcm_agent"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+# spikes/ is throwaway exploration kept as a record of what was measured, not
+# production code. Holding it to the project's standards would mean editing a
+# historical artifact to satisfy a linter.
+# docs/ quotes third-party source verbatim as evidence; reformatting a citation
+# would corrupt it.
+extend-exclude = ["spikes", "docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
