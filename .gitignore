@@ -1,0 +1,74 @@
+# ---------------------------------------------------------------------------
+# Secrets and PHI
+#
+# This is a healthcare project. Never commit real claim, remittance, or member
+# data — 835/837 files, EOBs and denial extracts are PHI. Keep only synthetic
+# or de-identified fixtures, placed under a path that is explicitly unignored.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.*
+
+data/*
+!data/fixtures/
+*.835
+*.837
+*.x12
+*.edi
+*.hl7
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.python-version
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.ipynb_checkpoints/
+
+# ---------------------------------------------------------------------------
+# Node / TypeScript
+# ---------------------------------------------------------------------------
+node_modules/
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+coverage/
+.npm/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# ---------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Agent scratch
+# ---------------------------------------------------------------------------
+.scratch/
