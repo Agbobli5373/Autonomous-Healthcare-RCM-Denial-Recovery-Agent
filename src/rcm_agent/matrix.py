@@ -4,7 +4,7 @@ This is the state behind the panel's top half, kept separate from Rich so it can
 be tested without rendering anything.
 
 Its job is to make the run's *shape* visible. A claim going `na` on emr and
-appeal is the agent declining to pursue an unappealable denial — the hardest
+appeal is the agent refusing to appeal an unappealable denial — the hardest
 thing this project has to communicate, shown rather than asserted. So `na` is a
 distinct state from `pending`, not a cosmetic variant of it.
 """
