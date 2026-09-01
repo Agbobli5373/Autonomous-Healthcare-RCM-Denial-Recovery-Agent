@@ -65,6 +65,30 @@ class LineSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class AuthorizationSpec:
+    """The payer's advance approval, as the practice-management system holds it.
+
+    The dates are written out rather than derived from the date of service. A
+    range computed from the claim would make the test that checks it covers that
+    date tautological, and that test is the one thing standing between the demo
+    and an argument for something untrue.
+    """
+
+    authorization_number: str
+    valid_from: str
+    valid_to: str
+    covered_procedure_codes: tuple[str, ...]
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "authorization_number": self.authorization_number,
+            "valid_from": self.valid_from,
+            "valid_to": self.valid_to,
+            "covered_procedure_codes": list(self.covered_procedure_codes),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ClaimSpec:
     claim_id: str
     payer: str
@@ -84,6 +108,15 @@ class ClaimSpec:
 
     lines: tuple[LineSpec, ...] = field(default_factory=tuple)
 
+    ordering_provider: str = "OKAFOR, N. MD"
+    authorization: AuthorizationSpec | None = None
+    """Only the prior-authorization claim has one.
+
+    The other two records exist and show nothing on file, because "the payer is
+    wrong, here is the Authorization" only means something if the screen is also
+    capable of saying there is none.
+    """
+
     @property
     def slug(self) -> str:
         return self.claim_id.lower()
@@ -97,6 +130,23 @@ class ClaimSpec:
             "service_lines": [line.as_claim_line() for line in self.lines],
         }
 
+    def as_practice_record(self) -> dict[str, Any]:
+        """The provider's view of the same episode. Carries the patient's name.
+
+        The Claim deliberately does not: the payer identifies a Patient by id,
+        and the person behind the id is the practice's record to hold.
+        """
+        record: dict[str, Any] = {
+            "claim_id": self.claim_id,
+            "patient_id": self.patient_id,
+            "patient_name": self.patient_name,
+            "date_of_service": self.date_of_service,
+            "ordering_provider": self.ordering_provider,
+        }
+        if self.authorization is not None:
+            record["authorization"] = self.authorization.as_record()
+        return record
+
 
 CLAIMS: tuple[ClaimSpec, ...] = (
     ClaimSpec(
@@ -108,6 +158,18 @@ CLAIMS: tuple[ClaimSpec, ...] = (
         check_number="EFT-8842019",
         rendering="text_layer",
         expected_action="appeal",
+        # Comfortably around the 14 March date of service on both sides. A range
+        # that only just reached it would read on screen as a coincidence rather
+        # than as the approval the appeal rests on.
+        authorization=AuthorizationSpec(
+            authorization_number="CHP-2026-0044719",
+            valid_from="2026-02-01",
+            valid_to="2026-05-31",
+            # The CPAP device only. E1390 was paid under a contractual write-off
+            # and was never authorized, so scope excludes something real and
+            # `covers` is not silently testing only the dates.
+            covered_procedure_codes=("E0601",),
+        ),
         lines=(
             LineSpec(
                 line_number=1,

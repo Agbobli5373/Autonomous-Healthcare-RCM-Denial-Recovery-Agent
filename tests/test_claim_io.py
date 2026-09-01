@@ -7,7 +7,8 @@ from typing import Any
 
 import pytest
 
-from rcm_agent.claim_io import ClaimFileError, claim_from_dict, load_claim
+from rcm_agent.claim_io import claim_from_dict, load_claim
+from rcm_agent.strict_json import RecordFileError
 
 VALID: dict[str, Any] = {
     "claim_id": "CLM-0001",
@@ -53,7 +54,7 @@ def test_amounts_are_decimal_not_float() -> None:
 
 @pytest.mark.parametrize("field", ["claim_id", "payer", "patient_id", "date_of_service"])
 def test_a_missing_required_field_is_named(field: str) -> None:
-    with pytest.raises(ClaimFileError, match=field):
+    with pytest.raises(RecordFileError, match=field):
         claim_from_dict(without(field))
 
 
@@ -62,7 +63,7 @@ def test_a_missing_group_code_is_rejected() -> None:
     data = json.loads(json.dumps(VALID))
     del data["service_lines"][0]["adjustments"][0]["group"]
 
-    with pytest.raises(ClaimFileError, match="group"):
+    with pytest.raises(RecordFileError, match="group"):
         claim_from_dict(data)
 
 
@@ -70,7 +71,7 @@ def test_an_invented_group_code_is_rejected() -> None:
     data = json.loads(json.dumps(VALID))
     data["service_lines"][0]["adjustments"][0]["group"] = "XX"
 
-    with pytest.raises(ClaimFileError, match="not a group code"):
+    with pytest.raises(RecordFileError, match="not a group code"):
         claim_from_dict(data)
 
 
@@ -78,7 +79,7 @@ def test_the_error_says_which_adjustment_was_wrong() -> None:
     data = json.loads(json.dumps(VALID))
     data["service_lines"][0]["adjustments"][0]["amount"] = "not-money"
 
-    with pytest.raises(ClaimFileError, match=r"service_lines\[0\]\.adjustments\[0\]\.amount"):
+    with pytest.raises(RecordFileError, match=r"service_lines\[0\]\.adjustments\[0\]\.amount"):
         claim_from_dict(data)
 
 
@@ -86,7 +87,7 @@ def test_a_bad_date_is_rejected() -> None:
     data = json.loads(json.dumps(VALID))
     data["date_of_service"] = "14/03/2026"
 
-    with pytest.raises(ClaimFileError, match="ISO date"):
+    with pytest.raises(RecordFileError, match="ISO date"):
         claim_from_dict(data)
 
 
@@ -94,7 +95,7 @@ def test_a_claim_with_no_service_lines_is_rejected() -> None:
     data = json.loads(json.dumps(VALID))
     data["service_lines"] = []
 
-    with pytest.raises(ClaimFileError, match="non-empty"):
+    with pytest.raises(RecordFileError, match="non-empty"):
         claim_from_dict(data)
 
 
@@ -108,7 +109,7 @@ def test_adjustments_are_optional_on_a_line() -> None:
 
 
 def test_a_missing_file_names_the_path(tmp_path: Path) -> None:
-    with pytest.raises(ClaimFileError, match="no such file"):
+    with pytest.raises(RecordFileError, match="no such file"):
         load_claim(tmp_path / "nope.json")
 
 
@@ -116,7 +117,7 @@ def test_malformed_json_reports_the_line(tmp_path: Path) -> None:
     path = tmp_path / "claim.json"
     path.write_text("{ not json", encoding="utf-8")
 
-    with pytest.raises(ClaimFileError, match="not valid JSON"):
+    with pytest.raises(RecordFileError, match="not valid JSON"):
         load_claim(path)
 
 

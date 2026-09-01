@@ -18,3 +18,12 @@ def eob_filename(claim_id: str) -> str:
 
 def claim_filename(claim_id: str) -> str:
     return f"{claim_slug(claim_id)}.json"
+
+
+def practice_record_filename(claim_id: str) -> str:
+    """Deliberately the same shape as the claim file.
+
+    The two are told apart by their directory, not their name, because they are
+    two views of one episode of care and reading them as a pair is the point.
+    """
+    return f"{claim_slug(claim_id)}.json"

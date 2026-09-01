@@ -18,14 +18,24 @@ uv run rcm-agent run
 Today that plays a scripted event sequence to exercise the run directory and the
 progress panel. Real work replaces it slice by slice.
 
-## The mock payer portal
+## The two mock systems
 
-No payer portal permits automated access, and this project does not evade bot
-detection, so the demo drives a mock. Run it locally:
+The agent operates two unrelated systems, and both are mocks. Run them side by
+side — they are deliberately nothing alike to look at, because in the demo video
+they must not read as one thing.
 
 ```bash
 uv run rcm-agent serve-portal
 ```
+
+```bash
+uv run rcm-agent serve-practice
+```
+
+### The payer portal
+
+No payer portal permits automated access, and this project does not evade bot
+detection, so the demo drives a mock.
 
 It serves at <http://127.0.0.1:8080>; any user ID and password are accepted. The
 markup deliberately carries no `data-testid`, no stable `id` and no ARIA — hooks
@@ -34,6 +44,32 @@ was never built to be automated. Four frictions are equally deliberate: the
 worklist arrives by XHR, the claim the demo follows sits on page two, the EOB
 opens in a new tab as a download, and the session expires once on a claim-detail
 view so the agent has to sign in again.
+
+### The practice-management system
+
+Serves at <http://127.0.0.1:8081>. This is where the `CO-197` denial is refuted:
+the patient's chart holds the Authorization the payer says was never on file,
+with its number, its validity range and its covered HCPCS scope, beside the date
+of service they have to be compared against.
+
+No open-source EMR models US payer authorizations, so it is purpose-built rather
+than an authorization stubbed into a spare field of something bigger. The agent
+also writes a chart note back, which is why it cannot be static. Notes are held
+in memory: they survive a reload, and a restart returns the system to a known
+screen so a second take of the demo starts where the first did.
+
+Sign-on accepts any credentials, but the demo does not type them. It restores a
+saved Solari browser profile instead:
+
+```bash
+uv run rcm-agent practice-storage-state --url http://127.0.0.1:8081
+```
+
+That writes a Playwright `storageState` file, which is one of the documented
+ways to create a Solari profile — so the second profile is reproducible from
+this repository rather than from whoever last signed on by hand. It contains no
+secret: the session id it carries is a constant in the source, and the system it
+opens holds only synthetic records.
 
 ## Where things are
 
