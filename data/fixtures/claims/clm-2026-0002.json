@@ -1,0 +1,36 @@
+{
+  "claim_id": "CLM-2026-0002",
+  "payer": "Cascade Health Plan",
+  "patient_id": "PAT-51884",
+  "date_of_service": "2026-03-19",
+  "service_lines": [
+    {
+      "line_number": 1,
+      "procedure_code": "A4253",
+      "charge": "78.00",
+      "adjustments": [
+        {
+          "group": "CO",
+          "reason_code": "16",
+          "amount": "78.00",
+          "remark_codes": [
+            "MA130"
+          ]
+        }
+      ]
+    },
+    {
+      "line_number": 2,
+      "procedure_code": "E1390",
+      "charge": "450.00",
+      "adjustments": [
+        {
+          "group": "CO",
+          "reason_code": "45",
+          "amount": "92.50",
+          "remark_codes": []
+        }
+      ]
+    }
+  ]
+}

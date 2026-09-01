@@ -1,0 +1,10 @@
+# The committed fixtures are compared byte for byte against what the generator
+# produces. Without this, git applies CRLF conversion to them on a Windows
+# checkout and the PDFs are corrupted — silently, and only for some clones.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.ndjson -text
+
+# Generated and reviewed as text, but never hand-edited.
+uv.lock -diff
