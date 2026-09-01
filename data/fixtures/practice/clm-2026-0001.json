@@ -1,0 +1,15 @@
+{
+  "claim_id": "CLM-2026-0001",
+  "patient_id": "PAT-40219",
+  "patient_name": "RIVERA, DELORES A",
+  "date_of_service": "2026-03-14",
+  "ordering_provider": "OKAFOR, N. MD",
+  "authorization": {
+    "authorization_number": "CHP-2026-0044719",
+    "valid_from": "2026-02-01",
+    "valid_to": "2026-05-31",
+    "covered_procedure_codes": [
+      "E0601"
+    ]
+  }
+}

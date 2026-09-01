@@ -81,6 +81,10 @@ _Avoid_: recoverability score, confidence
 A payer's advance approval for a service, with an authorization number, a validity date range and a scope of covered services. Lives in the practice-management system, not on the Claim. Proving that a valid Authorization covered the date of service is how a prior-authorization Denial is overturned.
 _Avoid_: pre-auth, auth (in prose), referral — a referral is a different instrument
 
+**Practice Record**:
+What the practice-management system holds about one episode of care — the Patient's name, the date of service, the ordering provider, and the Authorization if there is one. The provider's view of the episode the Claim describes from the payer's side; the two are read as a pair, which is why the Patient's name lives here and the Claim carries only an id.
+_Avoid_: chart (for the record itself — a chart is the screen it is shown on), encounter
+
 **Supporting Document**:
 Any other evidence attached to an Appeal — clinical notes, operative reports, proof of timely submission. Unlike an Authorization it has no fields the agent reasons over; it is attached, not compared.
 

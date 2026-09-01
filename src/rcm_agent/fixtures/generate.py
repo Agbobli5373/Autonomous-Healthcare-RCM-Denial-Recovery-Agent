@@ -9,7 +9,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from rcm_agent.fixtures.naming import claim_filename, eob_filename
+from rcm_agent.fixtures.naming import (
+    claim_filename,
+    eob_filename,
+    practice_record_filename,
+)
 from rcm_agent.fixtures.render import render_scan, render_text_layer
 from rcm_agent.fixtures.spec import CLAIMS, ClaimSpec
 
@@ -22,11 +26,25 @@ def document_path(root: Path, claim: ClaimSpec) -> Path:
     return root / "eobs" / eob_filename(claim.claim_id)
 
 
+def practice_record_path(root: Path, claim: ClaimSpec) -> Path:
+    return root / "practice" / practice_record_filename(claim.claim_id)
+
+
 def _write_claim(root: Path, claim: ClaimSpec) -> Path:
     path = claim_json_path(root, claim)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(claim.as_claim(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    return path
+
+
+def _write_practice_record(root: Path, claim: ClaimSpec) -> Path:
+    path = practice_record_path(root, claim)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(claim.as_practice_record(), indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
     return path
 
@@ -46,5 +64,6 @@ def generate_fixtures(root: Path) -> list[Path]:
     written: list[Path] = []
     for claim in CLAIMS:
         written.append(_write_claim(root, claim))
+        written.append(_write_practice_record(root, claim))
         written.append(_write_document(root, claim))
     return written

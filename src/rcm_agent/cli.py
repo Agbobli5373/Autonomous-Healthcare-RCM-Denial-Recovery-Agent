@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.table import Table
 
 from rcm_agent import demo_script
 from rcm_agent.analysis.extract import Extraction
-from rcm_agent.claim_io import ClaimFileError, load_claim
+from rcm_agent.claim_io import load_claim
 from rcm_agent.determination import determine
 from rcm_agent.domain import Determination
 from rcm_agent.events import EventStream
@@ -21,6 +23,10 @@ from rcm_agent.matrix import ClaimMatrix
 from rcm_agent.panel import make_panel
 from rcm_agent.run_directory import RunDirectory
 from rcm_agent.sandbox_extraction import ExtractionFailed, extract_document
+from rcm_agent.strict_json import RecordFileError
+
+if TYPE_CHECKING:  # imported lazily at run time so `--help` stays fast
+    from fastapi import FastAPI
 
 EXIT_BAD_INPUT = 2
 EXIT_INTERRUPTED = 130
@@ -70,6 +76,28 @@ def _build_parser() -> argparse.ArgumentParser:
     portal = sub.add_parser("serve-portal", help="Run the mock payer portal locally")
     portal.add_argument("--host", default="127.0.0.1")
     portal.add_argument("--port", type=int, default=8080)
+
+    practice = sub.add_parser(
+        "serve-practice", help="Run the mock practice-management system locally"
+    )
+    practice.add_argument("--host", default="127.0.0.1")
+    practice.add_argument("--port", type=int, default=8081)
+
+    profile = sub.add_parser(
+        "practice-storage-state",
+        help="Write a Solari browser profile that is already signed on to the practice system",
+    )
+    profile.add_argument(
+        "--url",
+        default="http://127.0.0.1:8081",
+        help="Where the practice system will be reached (default: http://127.0.0.1:8081)",
+    )
+    profile.add_argument(
+        "--out",
+        type=Path,
+        default=Path("practice-storage-state.json"),
+        help="Where to write it (default: ./practice-storage-state.json)",
+    )
 
     fixtures = sub.add_parser(
         "generate-fixtures", help="Regenerate the synthetic claims and EOB documents"
@@ -154,7 +182,7 @@ def determine_command(claim_path: Path, runs_dir: Path) -> int:
 
     try:
         claim = load_claim(claim_path)
-    except ClaimFileError as exc:
+    except RecordFileError as exc:
         # A claim that cannot be trusted is worse than one that will not load, so
         # this fails rather than guessing at the missing parts.
         console.print(f"[bold red]cannot read claim[/] {exc}")
@@ -232,12 +260,36 @@ def extract_command(document: Path, runs_dir: Path) -> int:
     return 0
 
 
-def serve_portal_command(host: str, port: int) -> int:
+def _serve(app: FastAPI, host: str, port: int) -> int:
     import uvicorn
 
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+    return 0
+
+
+def serve_portal_command(host: str, port: int) -> int:
     from rcm_agent.mocks.portal import create_app
 
-    uvicorn.run(create_app(), host=host, port=port, log_level="warning")
+    return _serve(create_app(), host, port)
+
+
+def serve_practice_command(host: str, port: int) -> int:
+    from rcm_agent.mocks.practice_management import create_app
+
+    return _serve(create_app(), host, port)
+
+
+def practice_storage_state_command(url: str, out: Path) -> int:
+    """Write the profile that lets the demo skip a login it has nothing to show.
+
+    Solari profiles are Playwright `storageState` files, and uploading one is a
+    documented way to create a profile — so the second profile is reproducible
+    from the repository rather than from whoever last logged in by hand.
+    """
+    from rcm_agent.mocks.practice_management import storage_state
+
+    out.write_text(json.dumps(storage_state(url), indent=2) + "\n", encoding="utf-8")
+    Console().print(str(out), style="dim")
     return 0
 
 
@@ -256,6 +308,10 @@ def main(argv: list[str] | None = None) -> int:
         return extract_command(args.document, args.runs_dir)
     if args.command == "serve-portal":
         return serve_portal_command(args.host, args.port)
+    if args.command == "serve-practice":
+        return serve_practice_command(args.host, args.port)
+    if args.command == "practice-storage-state":
+        return practice_storage_state_command(args.url, args.out)
     if args.command == "generate-fixtures":
         return generate_fixtures_command(args.out)
     return run_command(args.runs_dir, plain=args.plain, step_delay=args.step_delay)

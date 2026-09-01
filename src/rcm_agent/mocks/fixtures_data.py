@@ -22,6 +22,7 @@ from pathlib import Path
 from rcm_agent.claim_io import load_claim
 from rcm_agent.domain import Claim, ServiceLine
 from rcm_agent.fixtures.naming import eob_filename
+from rcm_agent.practice_io import PracticeRecord, load_practice_record
 
 FIXTURES_ROOT = Path(__file__).resolve().parents[3] / "data" / "fixtures"
 
@@ -92,3 +93,38 @@ def worklist() -> tuple[PortalClaim, ...]:
 
 def find(claim_id: str) -> PortalClaim | None:
     return next((c for c in worklist() if c.claim_id == claim_id), None)
+
+
+@lru_cache(maxsize=1)
+def practice_records() -> tuple[PracticeRecord, ...]:
+    """Every committed practice record, in claim order.
+
+    The provider's view of the same three episodes the payer portal serves. Both
+    mocks read the same `data/fixtures/`, which is what stops the payer's story
+    and the practice's story from drifting apart between takes.
+    """
+    paths = sorted((FIXTURES_ROOT / "practice").glob("*.json"))
+    return tuple(load_practice_record(path) for path in paths)
+
+
+def find_record(claim_id: str) -> PracticeRecord | None:
+    return next((r for r in practice_records() if r.claim_id == claim_id), None)
+
+
+def search_records(query: str) -> list[PracticeRecord]:
+    """Match on patient id, claim number or patient name.
+
+    Three keys because the agent arrives holding a claim number and a person
+    reading over its shoulder has a name - a lookup that only accepted the one
+    key the demo happens to use would not be a lookup.
+    """
+    wanted = query.strip().casefold()
+    if not wanted:
+        return []
+    return [
+        record
+        for record in practice_records()
+        if wanted in record.patient_id.casefold()
+        or wanted in record.claim_id.casefold()
+        or wanted in record.patient_name.casefold()
+    ]
