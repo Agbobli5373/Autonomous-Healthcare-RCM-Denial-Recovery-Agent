@@ -244,8 +244,12 @@ def _draw_scan_page(claim: ClaimSpec) -> Image.Image:
     # office scanner produces, and what sets how hard the OCR step is.
     page = Image.new("L", (1700, 2200), color=250)
     draw = ImageDraw.Draw(page)
-    heading = _scan_font(34)
-    body = _scan_font(26)
+    # Sized so OCR is required but achievable. At 26px with this much blur,
+    # tesseract read MA04 as "MAO04" and dropped the Remark Code entirely -
+    # and a Remark Code is what a guardrail fires on. A fixture that defeats
+    # OCR does not demonstrate OCR.
+    heading = _scan_font(46)
+    body = _scan_font(36)
 
     draw.text((110, 120), claim.payer.upper(), font=heading, fill=25)
     draw.text((110, 175), "EXPLANATION OF BENEFITS", font=body, fill=40)
@@ -269,16 +273,18 @@ def _draw_scan_page(claim: ClaimSpec) -> Image.Image:
     y = 455
     for line in claim.lines:
         row = (
-            f"{line.line_number:03d} {line.procedure_code:<8}{line.charge:>9}"
-            f"{line.allowed:>10}{line.paid:>8}   {line.group:<4}{line.reason_code:<5}"
-            f"{' '.join(line.remark_codes) or '-':<6}{line.adjustment_amount:>9}"
+            # Wider gutters than look necessary. With a single space, OCR ran
+            # "001" into "E1392" and lost the leading letter entirely.
+            f"{line.line_number:03d}    {line.procedure_code:<10}{line.charge:>10}"
+            f"{line.allowed:>11}{line.paid:>10}    {line.group:<5}{line.reason_code:<6}"
+            f"{' '.join(line.remark_codes) or '-':<8}{line.adjustment_amount:>11}"
         )
         draw.text((110, y), row, font=body, fill=30)
         # Wrapped, not truncated: cutting a CMS descriptor at a fixed width lost
         # the tail of the longest wording, and nothing would have caught it.
         for offset, chunk in enumerate(wrap_descriptor(line.descriptor, width=88)):
-            draw.text((150, y + 38 + (offset * 30)), chunk, font=_scan_font(22), fill=60)
-        y += 100 + (30 * max(0, len(wrap_descriptor(line.descriptor, width=88)) - 1))
+            draw.text((150, y + 48 + (offset * 38)), chunk, font=_scan_font(30), fill=60)
+        y += 130 + (38 * max(0, len(wrap_descriptor(line.descriptor, width=88)) - 1))
 
     return page
 
@@ -291,7 +297,7 @@ def render_scan(claim: ClaimSpec, destination: Path) -> None:
     # A sheet fed slightly crooked, then a cheap sensor: soft focus, speckle,
     # and the flattened contrast of a photocopy.
     page = page.rotate(rng.uniform(-0.8, 0.8), resample=Image.Resampling.BICUBIC, fillcolor=250)
-    page = page.filter(ImageFilter.GaussianBlur(radius=0.7))
+    page = page.filter(ImageFilter.GaussianBlur(radius=0.5))
 
     pixels = page.load()
     assert pixels is not None
