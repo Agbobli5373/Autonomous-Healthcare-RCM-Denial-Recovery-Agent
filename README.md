@@ -102,16 +102,48 @@ The preview URL carries an access token in its query string. It is printed to
 the terminal, because that is what you open — but the run directory records the
 URL without it.
 
-## Driving the portal
+## The agent
 
 ```bash
 uv run rcm-agent browse
 ```
 
-Hosts the mocks in a sandbox, opens a **Solari cloud browser**, and works one
-claim end to end: sign in, find it, open it, fetch its EOB onto local disk. Both
-halves are real — the portal is reached over its public preview URL, not on
-localhost.
+Hosts the mocks in a sandbox, opens a **Solari cloud browser**, and hands
+**Claude Sonnet 5** four tools — `log_in`, `search_claims`, `open_claim`,
+`download_eob` — and one instruction: get this claim's EOB. There is no
+navigation sequence in the code. The model chooses each tool and its arguments,
+and decides when it is finished.
+
+It needs `ANTHROPIC_API_KEY` alongside `SOLARI_API_KEY` in the gitignored `.env`.
+**All model calls are orchestrator-side**: the key is read in this process and
+never reaches the sandbox, which serves the mocks and runs the analysis kernel
+and is reachable from the public internet for as long as the demo lasts. The
+`agent` and `browser` packages are excluded from what gets uploaded there for the
+same reason. Token usage is reported per run and recorded in `events.ndjson`.
+
+Escalating a step to Opus 5 is a configuration change rather than a rewrite —
+see `Escalation` in `src/rcm_agent/agent/model.py`, which names the reason a step
+would be escalated, not just the model.
+
+### The recovery
+
+The portal signs the agent out on its first claim-detail view, on purpose. The
+handling is deliberately split:
+
+- **Detection is the tool's, and deterministic.** `open_claim` notices it landed
+  on the login page and returns `session_expired`. No model is asked to infer
+  that, because it is a fact about the page.
+- **The decision is the agent's.** Given that outcome, the model chooses to call
+  `log_in` again and resume. The loop records that choice as a `recovery` event;
+  it does not cause it. A test drives the same portal with a model that answers
+  the expiry by giving up, and no `recovery` is recorded — which is how we know
+  the record reflects the agent rather than the harness.
+
+`recovery` and `retry` are different kinds and render differently: a retry is a
+click that missed and is styled quietly; a recovery is the agent changing its
+plan and is styled as **handled**, never as an error. A run that visibly stumbles
+and recovers is more convincing than one that never stumbles — but only if the
+record says which happened.
 
 **Perception is the accessibility tree, not screenshots.** For a page the a11y
 tree carries more than pixels do — role, name, structure — at a fraction of the

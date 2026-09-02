@@ -13,6 +13,8 @@ from rich.console import Console
 from rich.table import Table
 
 from rcm_agent import demo_script
+from rcm_agent.agent import AgentRun, PortalAccess, work_the_portal
+from rcm_agent.agent.client import planning_client
 from rcm_agent.analysis.extract import Extraction
 from rcm_agent.browser.session import cloud_browser
 from rcm_agent.claim_io import load_claim
@@ -23,7 +25,6 @@ from rcm_agent.events import EventStream
 from rcm_agent.fixtures.generate import generate_fixtures
 from rcm_agent.matrix import ClaimMatrix
 from rcm_agent.panel import make_panel
-from rcm_agent.portal_phase import PortalWork, work_the_portal
 from rcm_agent.run_directory import RunDirectory
 from rcm_agent.sandbox import (
     ProvisioningError,
@@ -119,7 +120,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     browse = sub.add_parser(
         "browse",
-        help="Drive the sandbox-hosted portal with a Solari cloud browser",
+        help="Let the agent work a claim in the sandbox-hosted portal",
     )
     browse.add_argument(
         "--claim",
@@ -406,21 +407,21 @@ def browse_command(claim_id: str, runs_dir: Path) -> int:
     stream = EventStream()
     stream.add_sink(run)
 
-    async def go() -> PortalWork:
-        api_key = credential("SOLARI_API_KEY")
+    async def go() -> AgentRun:
+        solari = credential("SOLARI_API_KEY")
+        planner = planning_client(stream)
         async with hosted_mocks(stream) as hosting:
             portal = next(m for m in hosting.mocks if m.name == "payer-portal")
             console.print(f"portal hosted at {portal.url_without_token}", style="dim")
-            async with cloud_browser(api_key, stream) as page:
+            async with cloud_browser(solari, stream) as page:
                 return await work_the_portal(
                     page,
-                    portal_url=portal.url,
+                    portal=PortalAccess(url=portal.url, user=PORTAL_USER, password=PORTAL_PASSWORD),
                     claim_id=claim_id,
-                    user=PORTAL_USER,
-                    password=PORTAL_PASSWORD,
                     stream=stream,
                     documents=run.documents_path,
                     screenshots=run.screenshots_path,
+                    client=planner,
                 )
 
     with run:
@@ -440,9 +441,17 @@ def browse_command(claim_id: str, runs_dir: Path) -> int:
         for step in work.steps:
             console.print(f"  {step.tool:15} {step.outcome}")
         if work.recovered:
-            console.print("recovered from the session expiry", style="dim")
+            console.print("the agent recovered from the session expiry", style="dim")
+        calls = work.usage.steps
+        console.print(
+            f"{calls} model call{'' if calls == 1 else 's'},  "
+            f"{work.usage.input_tokens:,} in / {work.usage.output_tokens:,} out",
+            style="dim",
+        )
+        if work.said:
+            console.print(f"agent: {work.said}", style="dim italic")
         if not work.ok:
-            console.print("[bold red]the portal phase did not finish[/]")
+            console.print("[bold red]the agent did not obtain the EOB[/]")
             run.fail(phase="portal", seq=run.last_seq, finished_at=datetime.now(UTC))
             return EXIT_ENVIRONMENT
         console.print(f"EOB saved to {work.document}")

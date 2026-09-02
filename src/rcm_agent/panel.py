@@ -43,6 +43,9 @@ _CELL_STYLES: dict[CellState, str] = {
 
 _OUTCOME_STYLES: dict[str, str] = {
     "ok": "green",
+    # Yellow, not red: the portal answered and the answer was not "yes". The
+    # agent still has somewhere to go from there.
+    "handled": "yellow",
     "recovered": "yellow",
     "failed": "bold red",
 }
@@ -109,6 +112,17 @@ def describe(event: Event, glyphs: Glyphs) -> Text:
         reason = str(event.detail.get("reason", "recovered"))
         line.append(f"{glyphs.recovery} ", style="yellow")
         line.append(f"{reason} — handled", style="yellow")
+        return line
+
+    if event.kind == "retry":
+        # Quieter than a recovery on purpose. A retry is a click that missed and
+        # the next one usually lands; a recovery is the agent changing its plan.
+        # Rendering them alike would make a healthy run look eventful and bury
+        # the one moment the demo is actually about.
+        attempt = event.detail.get("attempt")
+        of = event.detail.get("of")
+        line.append(f"{event.tool or 'retry':<22}", style="dim")
+        line.append(f"retrying ({attempt} of {of})", style="dim")
         return line
 
     label = event.tool or event.kind.replace("_", " ")

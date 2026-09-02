@@ -1,8 +1,9 @@
-"""The four browser tools, driven scripted for now.
+"""The four browser tools the agent plans over.
 
-An LLM will plan over these later; proving the mechanics first means that when
-one is in the loop, a failure is a planning failure rather than a locator that
-never worked.
+They were built and proved scripted first, so that when the model arrived a
+failure would be a planning failure rather than a locator that never worked.
+`rcm_agent.agent.loop` is what chooses between them now; nothing in this file
+knows what order they run in, and that is the point.
 
 **Locators use text, structure and context — never a hook.** The portal offers
 no `id`, no `data-testid` and no ARIA, which is the point of it, so a field is
@@ -485,7 +486,10 @@ async def _finish(
         kind="tool_result",
         tool=tool,
         claim_id=claim_id,
-        outcome="ok" if outcome == "ok" else "failed",
+        # `unavailable` is the only one of these that is a fault: the tool tried
+        # and could not finish. The rest are the portal answering truthfully, and
+        # painting them as failures makes a working run look broken.
+        outcome="ok" if outcome == "ok" else ("failed" if outcome == "unavailable" else "handled"),
         detail={**detail, "result": outcome},
         into=screenshots,
     )

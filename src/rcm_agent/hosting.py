@@ -27,6 +27,22 @@ GUEST_ROOT = "/tmp/rcm"
 leaves the mocks importable and empty — the worst of both outcomes.
 """
 
+ORCHESTRATOR_ONLY: tuple[str, ...] = ("agent", "browser")
+"""Packages the guest has no business holding.
+
+The rule is short: **the guest serves the mocks and runs the analysis kernel. It
+never drives a browser and it never calls a model.** These two packages do those
+things, so they stay on this machine - the sandbox is reachable from the public
+internet through its preview URL for as long as the demo runs, and code that
+talks to a model does not belong on it.
+
+This is the one exception to building the archive by walking rather than by
+listing, and it is an *exclusion* rather than an inclusion for that reason: it
+cannot silently drop a module the mocks need, only a package they must not
+import. If that ever stopped being true, the rehearsal in
+`tests/test_hosting.py` boots both servers out of this archive and would fail.
+"""
+
 WEB_PIP_PACKAGES: tuple[str, ...] = ("fastapi", "uvicorn", "python-multipart")
 """What serving needs. `python-multipart` is not optional: both sign-in forms
 post as multipart, and without it FastAPI raises only when the form is submitted."""
@@ -81,13 +97,17 @@ def working_copy_archive(repo_root: Path) -> bytes:
 
     Only what serving needs travels: the package's Python and the committed
     fixtures. Not the tests, not the generator's outputs beyond those fixtures,
-    and not `__pycache__`, whose stale `.pyc` files would shadow the sources this
-    exists to ship.
+    not `__pycache__` - whose stale `.pyc` files would shadow the sources this
+    exists to ship - and not `ORCHESTRATOR_ONLY`, which is the single exception
+    to the walk and is explained where it is defined.
     """
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-        for path in sorted((repo_root / "src" / "rcm_agent").rglob("*.py")):
+        package = repo_root / "src" / "rcm_agent"
+        for path in sorted(package.rglob("*.py")):
             if "__pycache__" in path.parts:
+                continue
+            if path.relative_to(package).parts[0] in ORCHESTRATOR_ONLY:
                 continue
             archive.add(path, arcname=str(path.relative_to(repo_root).as_posix()))
         for path in sorted((repo_root / "data" / "fixtures").rglob("*")):
