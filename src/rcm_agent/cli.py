@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,14 +17,17 @@ from rich.table import Table
 from rcm_agent import demo_script
 from rcm_agent.agent import AgentRun, PortalAccess, Workspace, work_the_claim
 from rcm_agent.agent.client import planning_client
+from rcm_agent.agent.determining import determine_with_judgement
 from rcm_agent.analysis.extract import Extraction
 from rcm_agent.browser.session import cloud_browser
+from rcm_agent.claim_from_document import ClaimIdentity, claim_from_extraction
 from rcm_agent.claim_io import load_claim
 from rcm_agent.config import MissingCredential, credential
 from rcm_agent.determination import determine
 from rcm_agent.domain import Determination
 from rcm_agent.events import EventStream
 from rcm_agent.fixtures.generate import generate_fixtures
+from rcm_agent.fixtures.naming import eob_filename
 from rcm_agent.matrix import ClaimMatrix
 from rcm_agent.mocks.practice_management import storage_state as practice_storage_state
 from rcm_agent.panel import make_panel
@@ -33,7 +38,12 @@ from rcm_agent.sandbox import (
     ServerStartupError,
     UploadFailed,
 )
-from rcm_agent.sandbox_extraction import SOURCE_ROOT, ExtractionFailed, extract_document
+from rcm_agent.sandbox_extraction import (
+    SOURCE_ROOT,
+    ExtractionFailed,
+    extract_document,
+    provisioned_sandbox,
+)
 from rcm_agent.sandbox_hosting import hosted_mocks, keep_alive
 from rcm_agent.strict_json import RecordFileError
 
@@ -133,6 +143,25 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("runs"),
         help="Where run directories are written (default: ./runs)",
+    )
+
+    determine_all = sub.add_parser(
+        "determine-all",
+        help="Extract every committed EOB and reach a Determination on each claim",
+    )
+    determine_all.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=Path("runs"),
+        help="Where run directories are written (default: ./runs)",
+    )
+    determine_all.add_argument(
+        "--plain", action="store_true", help="Force line-per-event output instead of the live panel"
+    )
+    determine_all.add_argument(
+        "--local",
+        action="store_true",
+        help="Extract on this machine instead of in a Solari sandbox",
     )
 
     profile = sub.add_parser(
@@ -485,6 +514,116 @@ def browse_command(claim_id: str, runs_dir: Path) -> int:
     return 0
 
 
+def determine_all_command(runs_dir: Path, *, plain: bool, local: bool) -> int:
+    """Every committed claim, from its EOB document to a Determination.
+
+    This is where the matrix visibly diverges: one claim heads for an appeal, one
+    is closed by a rule without a model ever being asked, and one is recoverable
+    by rebilling rather than by appealing. An agent that answered `appeal`
+    everywhere would get one of the three right.
+
+    Extraction runs in a Solari sandbox by default, because that is the
+    arrangement the demo uses. `--local` runs it here instead, for when the
+    interesting part is the adjudication rather than the transport.
+    """
+    console = Console()
+    claims = sorted(Path("data/fixtures/claims").glob("*.json"))
+    matrix = ClaimMatrix([load_claim(path).claim_id for path in claims])
+    panel = make_panel(matrix, console, force_plain=plain)
+
+    run = RunDirectory.create(runs_dir, started_at=datetime.now(UTC))
+    stream = EventStream()
+    stream.add_sink(run)
+    stream.add_sink(matrix)
+    stream.add_sink(panel)
+
+    async def work() -> None:
+        judge_client = planning_client(stream, phase="analysis")
+        async with extractions(stream, run, local=local) as read_document:
+            for path in claims:
+                known = load_claim(path)
+                document = Path("data/fixtures/eobs") / eob_filename(known.claim_id)
+                stream.emit(phase="analysis", kind="phase_start", claim_id=known.claim_id)
+
+                claim = claim_from_extraction(
+                    await read_document(document), ClaimIdentity.of(known)
+                )
+                determination = await determine_with_judgement(
+                    claim, client=judge_client, stream=stream
+                )
+                run.write_claim(determination)
+                stream.emit(
+                    phase="analysis", kind="phase_end", claim_id=known.claim_id, outcome="ok"
+                )
+
+    try:
+        with run, panel:
+            try:
+                asyncio.run(work())
+            except MissingCredential as exc:
+                console.print(f"[bold red]{exc}[/]")
+                return EXIT_BAD_INPUT
+            except (
+                ServerStartupError,
+                ProvisioningError,
+                UploadFailed,
+                SandboxUnreachable,
+                ExtractionFailed,
+            ) as exc:
+                # Inside the `with`, for the reason `host_mocks_command` gives:
+                # outside it, this records against a run directory that has
+                # already been closed.
+                console.print(f"[bold red]could not reach a Determination[/] {exc}")
+                run.fail(phase="analysis", seq=run.last_seq, finished_at=datetime.now(UTC))
+                return EXIT_ENVIRONMENT
+
+            summary = matrix.summary()
+            run.complete(finished_at=datetime.now(UTC), summary=summary)
+            panel.freeze(summary=summary, run_path=run.path)
+    except KeyboardInterrupt:
+        console.print(f"\ninterrupted - partial run at {run.path}")
+        return EXIT_INTERRUPTED
+
+    console.print(f"per-claim determinations in {run.claims_path}")
+    return 0
+
+
+@contextlib.asynccontextmanager
+async def extractions(
+    stream: EventStream, run: RunDirectory, *, local: bool
+) -> AsyncGenerator[Callable[[Path], Awaitable[Extraction]]]:
+    """Hand back a way to read one EOB, either in a sandbox or on this machine.
+
+    One sandbox for all three documents rather than one each: provisioning costs
+    about twenty seconds, and the Free tier allows a single sandbox anyway.
+    """
+    if local:
+        from rcm_agent.analysis.extract import extract as extract_here
+
+        async def here(document: Path) -> Extraction:
+            stream.emit(phase="analysis", kind="tool_call", tool="extract_document")
+            try:
+                return extract_here(document)
+            except Exception as exc:
+                # The sandbox path reports every read failure as ExtractionFailed
+                # and the run ends tidily. Local extraction should not be the one
+                # that ends a run in a traceback with a half-written directory
+                # behind it - and it is the likelier one to fail, because a
+                # scanned EOB needs tesseract installed on this machine.
+                raise ExtractionFailed(f"could not read {document.name}: {exc}") from exc
+
+        yield here
+        return
+
+    async with provisioned_sandbox(stream) as sandbox:
+
+        async def in_the_sandbox(document: Path) -> Extraction:
+            _, extraction = await extract_document(document, run, stream, sandbox=sandbox)
+            return extraction
+
+        yield in_the_sandbox
+
+
 def practice_storage_state_command(url: str, out: Path) -> int:
     """Write the profile that lets the demo skip a login it has nothing to show.
 
@@ -518,6 +657,8 @@ def main(argv: list[str] | None = None) -> int:
         return serve_practice_command(args.host, args.port)
     if args.command == "host-mocks":
         return host_mocks_command(args.runs_dir, args.document)
+    if args.command == "determine-all":
+        return determine_all_command(args.runs_dir, plain=args.plain, local=args.local)
     if args.command == "browse":
         return browse_command(args.claim, args.runs_dir)
     if args.command == "practice-storage-state":

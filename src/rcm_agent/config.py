@@ -38,7 +38,23 @@ def credential(name: str, *, start: Path | None = None) -> str:
 
 
 def fingerprint(secret: str) -> str:
-    """Enough to tell two keys apart in a log, not enough to use one."""
+    """Enough to tell two keys apart in a log, not enough to use one - and not
+    shaped like one either.
+
+    The tail identifies a key: vendor consoles print the last few characters
+    beside it, so that is what a human matches against. The head is dropped on
+    purpose. In every credential this project handles the head is a fixed vendor
+    prefix - identical across every key that vendor issues - which tells two of
+    their keys apart not at all, and is exactly what a secret scanner matches
+    on. The prefixes are not written out here: this module ships to the sandbox,
+    and `test_no_credential_travels_to_the_guest` rightly refuses source
+    carrying a credential-shaped string, a docstring included.
+
+    Run artifacts carry these fingerprints and are committed as example runs, so
+    a fingerprint that keeps the prefix is a scanner failure waiting in a
+    directory. This repo has paid that once already: a constant that merely
+    looked like a session token had to be rewritten out of a branch history.
+    """
     if len(secret) < 12:
         return "?" * len(secret)
-    return f"{secret[:8]}...{secret[-4:]} ({len(secret)} chars)"
+    return f"...{secret[-4:]} ({len(secret)} chars)"

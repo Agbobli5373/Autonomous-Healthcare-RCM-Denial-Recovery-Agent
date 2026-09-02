@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from rcm_agent import sandbox_hosting
+from rcm_agent.config import fingerprint
 from rcm_agent.events import Event, EventStream
 from rcm_agent.sandbox import HostedMock, ServerStartupError
 from rcm_agent.sandbox_hosting import hosted_mocks
@@ -158,4 +159,7 @@ def test_the_api_key_is_recorded_only_as_a_fingerprint(
 
     dumped = json.dumps([event.to_dict() for event in recorded])
     assert "slr_live_not_a_real_key_for_tests" not in dumped
-    assert "slr_live" in dumped, "the fingerprint should still tell two keys apart"
+    assert "slr_live" not in dumped, "the vendor prefix is what a secret scanner matches"
+    assert fingerprint("slr_live_not_a_real_key_for_tests") in dumped, (
+        "the fingerprint should still be there, identifying the key by its tail"
+    )
