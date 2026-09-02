@@ -105,6 +105,9 @@ def _build_parser() -> argparse.ArgumentParser:
     console_ui = sub.add_parser("console", help="Open the operator console")
     console_ui.add_argument("--host", default="127.0.0.1")
     console_ui.add_argument("--port", type=int, default=8090)
+    console_ui.add_argument(
+        "--no-open", action="store_true", help="Serve without opening a browser"
+    )
 
     portal = sub.add_parser("serve-portal", help="Run the mock payer portal locally")
     portal.add_argument("--host", default="127.0.0.1")
@@ -356,7 +359,7 @@ def _serve(app: FastAPI, host: str, port: int) -> int:
     return 0
 
 
-def console_command(host: str, port: int) -> int:
+def console_command(host: str, port: int, *, open_browser: bool = True) -> int:
     """Serve the console's committed bundle.
 
     No build step, and no Node. The JavaScript toolchain in `console/` exists
@@ -371,7 +374,17 @@ def console_command(host: str, port: int) -> int:
         display.print(f"[bold red]{exc}[/]")
         return EXIT_BAD_INPUT
 
-    display.print(f"console on http://{host}:{port}", style="dim")
+    url = f"http://{host}:{port}"
+    display.print(f"console on {url}", style="dim")
+    if open_browser:
+        # The demo has a fifteen-minute budget and this is the one command in
+        # it. Opening the page is the difference between a reviewer reading a
+        # URL and a reviewer looking at the console. `--no-open` is there for
+        # anywhere without a browser to open.
+        import threading
+        import webbrowser
+
+        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     return _serve(app, host, port)
 
 
@@ -685,7 +698,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "host-mocks":
         return host_mocks_command(args.runs_dir, args.document)
     if args.command == "console":
-        return console_command(args.host, args.port)
+        return console_command(args.host, args.port, open_browser=not args.no_open)
     if args.command == "determine-all":
         return determine_all_command(args.runs_dir, plain=args.plain, local=args.local)
     if args.command == "browse":

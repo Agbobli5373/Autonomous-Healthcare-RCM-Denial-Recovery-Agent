@@ -41,6 +41,11 @@
   --close: #5b6673;
   --close-bg: #edeff2;
 
+  /* Scrollbars, form controls and the canvas painted before the first frame
+     belong to the browser, not to this stylesheet. Without this they stay
+     light while everything around them goes dark. */
+  color-scheme: light;
+
   --radius: 6px;
 
   /* No webfont. The reference ships one and renders the OS stack anyway; its
@@ -55,6 +60,7 @@
    light choice still beats a dark operating system. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --ground: #0d1015;
     --surface: #141920;
     --surface-2: #1a2029;
@@ -77,6 +83,7 @@
 
 /* And again, so an explicit dark choice wins over a light operating system. */
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --ground: #0d1015;
   --surface: #141920;
   --surface-2: #1a2029;

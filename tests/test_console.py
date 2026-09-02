@@ -77,6 +77,25 @@ def test_the_page_loads_nothing_from_the_network(built_css: str) -> None:
         "a stylesheet loads a remote asset"
     )
 
+    # The script matters too. It is 194 KB and it *can* fetch - Vite ships a
+    # modulepreload polyfill that calls `fetch` on same-origin hrefs - so
+    # checking only the markup and the stylesheet would leave the failure this
+    # docstring names uncaught. Every remote address in the bundle is named
+    # here; a new one has to be looked at rather than waved through.
+    benign = {
+        "http://www.w3.org/1998/Math/MathML",
+        "http://www.w3.org/1999/xlink",
+        "http://www.w3.org/2000/svg",
+        "http://www.w3.org/XML/1998/namespace",
+        "https://react.dev/errors/",
+    }
+    script = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(STATIC_ROOT.rglob("*.js"))
+    )
+    found = set(re.findall(r"""https?://[^\s"\'`)]{0,60}""", script))
+
+    assert found <= benign, f"the bundle carries an unexpected remote address: {found - benign}"
+
 
 def test_the_type_is_the_operating_system_stack(built_css: str) -> None:
     """No webfont, and none needed.

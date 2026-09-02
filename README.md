@@ -242,7 +242,11 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pyright
 uv run pytest
+(cd console && npm run typecheck && npm test)
 ```
+
+The last line needs Node and is only for changes to the console; everything
+above it is all a reviewer ever runs.
 
 The Solari smoke-test spike under `spikes/` needs its own extra:
 
