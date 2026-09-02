@@ -108,6 +108,9 @@ def _build_parser() -> argparse.ArgumentParser:
     console_ui.add_argument(
         "--no-open", action="store_true", help="Serve without opening a browser"
     )
+    console_ui.add_argument(
+        "--runs-dir", type=Path, default=Path("runs"), help="Where run directories live"
+    )
 
     portal = sub.add_parser("serve-portal", help="Run the mock payer portal locally")
     portal.add_argument("--host", default="127.0.0.1")
@@ -359,7 +362,7 @@ def _serve(app: FastAPI, host: str, port: int) -> int:
     return 0
 
 
-def console_command(host: str, port: int, *, open_browser: bool = True) -> int:
+def console_command(host: str, port: int, *, runs_dir: Path, open_browser: bool = True) -> int:
     """Serve the console's committed bundle.
 
     No build step, and no Node. The JavaScript toolchain in `console/` exists
@@ -369,7 +372,7 @@ def console_command(host: str, port: int, *, open_browser: bool = True) -> int:
 
     display = Console()
     try:
-        app = create_app()
+        app = create_app(runs_dir)
     except ConsoleNotBuilt as exc:
         display.print(f"[bold red]{exc}[/]")
         return EXIT_BAD_INPUT
@@ -698,7 +701,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "host-mocks":
         return host_mocks_command(args.runs_dir, args.document)
     if args.command == "console":
-        return console_command(args.host, args.port, open_browser=not args.no_open)
+        return console_command(
+            args.host, args.port, runs_dir=args.runs_dir, open_browser=not args.no_open
+        )
     if args.command == "determine-all":
         return determine_all_command(args.runs_dir, plain=args.plain, local=args.local)
     if args.command == "browse":

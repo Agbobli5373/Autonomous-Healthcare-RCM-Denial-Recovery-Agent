@@ -1,4 +1,4 @@
-"""Serving the console's built page.
+"""Serving the console: its built page, and the run it reads.
 
 The bundle under `static/` is committed. That is a deliberate and slightly
 unusual choice for a repository read as a work sample, and the reason is a
@@ -11,17 +11,29 @@ prerequisites.
 The page it serves asks the network for nothing. There is no webfont: the
 typography is the operating system's own stack, which is what the reference this
 console borrows from actually renders despite shipping a font of its own.
+
+Run data arrives over a socket rather than in the page, because opening a
+finished run and watching a live one should be the same operation - and a later
+ticket makes it one by leaving this connection open instead of closing it.
 """
+
+# pyright: reportUnusedFunction=false
+# Route handlers are registered by decoration, not called by name - the same
+# pragma the mock servers carry, for the same reason.
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+
+from rcm_agent.console.replay import replay
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 """Where `console/` builds to. Committed, and served as-is."""
+
+DEFAULT_RUNS = Path("runs")
 
 
 class ConsoleNotBuilt(RuntimeError):
@@ -33,7 +45,7 @@ class ConsoleNotBuilt(RuntimeError):
     """
 
 
-def create_app() -> FastAPI:
+def create_app(runs_dir: Path | None = None) -> FastAPI:
     """The console as an app, so it can be tested without a port."""
     if not (STATIC_ROOT / "index.html").is_file():
         raise ConsoleNotBuilt(
@@ -41,8 +53,28 @@ def create_app() -> FastAPI:
             "rebuild it with `npm install && npm run build` in console/."
         )
 
+    root = DEFAULT_RUNS if runs_dir is None else runs_dir
     app = FastAPI(title="Denial Recovery Console", docs_url=None, redoc_url=None)
-    # Mounted last, at the root, so later routes for run data are matched first.
+
+    @app.websocket("/events")
+    async def events(socket: WebSocket) -> None:
+        """Replay every run, then hold the connection open.
+
+        Held rather than closed so the client can tell "there is nothing more
+        yet" from "the server went away" - and so that following a live run is a
+        change to what happens after this loop, not a change to the protocol.
+        """
+        await socket.accept()
+        for enriched in replay(root):
+            await socket.send_json({"type": "event", **enriched})
+        await socket.send_json({"type": "replayed"})
+        try:
+            # Nothing is expected from the browser. This waits for it to leave.
+            await socket.receive_text()
+        except WebSocketDisconnect:
+            return
+
+    # Mounted last and at the root, so the socket route above is matched first.
     # `html=True` serves index.html for `/`.
     app.mount("/", StaticFiles(directory=STATIC_ROOT, html=True), name="console")
     return app

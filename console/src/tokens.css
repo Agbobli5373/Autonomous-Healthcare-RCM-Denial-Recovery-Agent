@@ -46,6 +46,8 @@
      light while everything around them goes dark. */
   color-scheme: light;
 
+  --wash: rgba(27, 58, 107, 0.03);
+
   --radius: 6px;
 
   /* No webfont. The reference ships one and renders the OS stack anyway; its
@@ -78,6 +80,7 @@
     --rebill-bg: #2a2114;
     --close: #8892a0;
     --close-bg: #1c222b;
+    --wash: rgba(138, 176, 232, 0.05);
   }
 }
 
@@ -101,6 +104,7 @@
   --rebill-bg: #2a2114;
   --close: #8892a0;
   --close-bg: #1c222b;
+  --wash: rgba(138, 176, 232, 0.05);
 }
 
 body {
