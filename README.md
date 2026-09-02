@@ -102,6 +102,41 @@ The preview URL carries an access token in its query string. It is printed to
 the terminal, because that is what you open — but the run directory records the
 URL without it.
 
+## Driving the portal
+
+```bash
+uv run rcm-agent browse
+```
+
+Hosts the mocks in a sandbox, opens a **Solari cloud browser**, and works one
+claim end to end: sign in, find it, open it, fetch its EOB onto local disk. Both
+halves are real — the portal is reached over its public preview URL, not on
+localhost.
+
+**Perception is the accessibility tree, not screenshots.** For a page the a11y
+tree carries more than pixels do — role, name, structure — at a fraction of the
+cost, and it does not move when a stylesheet does. The portal authors no ARIA at
+all, and the tree is still rich, because real HTML has implicit semantics: a
+`<table>` is a table and an `<a>` is a link. Screenshots are still taken at each
+decision point, but as audit artifacts, named for the `seq` of the event that
+references them.
+
+**Locators use text and structure only.** The login fields have no accessible
+name — their labels are sibling table cells rather than `<label for>` — so they
+are reached through the row that names them, which is how a person finds them
+too.
+
+**Failures split by kind.** Mechanical ones — an element a frame late, a click
+that missed — are retried inside the tool, three attempts at 250ms then 500ms
+under a wall-clock cap, and appear in `events.ndjson` with an attempt count
+without ever reaching the caller. Semantic ones — the session expired, the claim
+is not in this queue, the credentials were refused — come back as results.
+Retrying those would just ask the same question again.
+
+The session expiry is the one the demo turns on: the portal signs the agent out
+on its first claim detail, `open_claim` returns `session_expired`, and the run
+signs in again and carries on. The record calls that `recovery`, not `error`.
+
 ## Where things are
 
 | | |

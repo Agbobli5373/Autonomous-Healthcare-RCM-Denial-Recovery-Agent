@@ -34,9 +34,17 @@ Kind = Literal[
     "tool_result",
     "determination",
     "recovery",
+    "retry",
     "error",
 ]
-"""`recovery` is first-class, not a subtype of `error`.
+"""Neither `recovery` nor `retry` is a subtype of `error`.
+
+A `retry` is a mechanical attempt that did not land - an element a frame late, a
+click that missed - and the next one usually works. Recording it as an error
+would make a healthy run look broken; not recording it at all would make a tool
+that quietly tried three times indistinguishable from one that worked at once.
+
+`recovery` is the other kind of handled thing.
 
 The mock portal expires its session on purpose, and the agent re-authenticates.
 That is handled behaviour, and the schema says so rather than leaving every
@@ -100,6 +108,17 @@ class EventStream:
 
     def add_sink(self, sink: EventSink) -> None:
         self._sinks.append(sink)
+
+    @property
+    def next_seq(self) -> int:
+        """The number the next emit will assign.
+
+        Screenshots are named for the event that references them, so whoever
+        writes the file has to know the seq before the event exists. Asking here
+        keeps that number issued in one place; a second counter kept elsewhere
+        would drift the moment anything emitted out of order.
+        """
+        return self._seq + 1
 
     def emit(
         self,
