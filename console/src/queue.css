@@ -1,0 +1,188 @@
+/* The queue. Hairline rules rather than cards, monospace for machine facts and
+   never for prose, and hue only where it carries meaning. */
+
+.queue {
+  border-top: 1px solid var(--rule);
+}
+
+.sect {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 18px 7px;
+}
+
+.sect h2 {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.sect .count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+
+.colhead,
+.qrow {
+  display: grid;
+  grid-template-columns: 1fr 96px 96px;
+  gap: 14px;
+  align-items: center;
+  padding: 0 18px;
+}
+
+/* No Recovery column at all in the ruled section. A dash would answer a question
+   that should not be asked: nothing was weighed, so there is no score missing. */
+.colhead.norank,
+.qrow.norank {
+  grid-template-columns: 1fr 96px;
+}
+
+.colhead {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.colhead .right {
+  text-align: right;
+}
+
+.qrow {
+  padding-top: 9px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.qrow:hover {
+  background: var(--wash);
+}
+
+.qtop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qrow .id {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+
+.qrow .sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.qrow .amt {
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.qrow .amt .sm {
+  display: block;
+  font-size: 10px;
+  color: var(--ink-3);
+}
+
+/* Two characters, tinted. Long enough to identify an Action, short enough that
+   the column does not become the widest thing in the row. */
+.pill {
+  flex: none;
+  padding: 1.5px 5px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.p-appeal {
+  color: var(--appeal);
+  background: var(--appeal-bg);
+}
+
+.p-rebill {
+  color: var(--rebill);
+  background: var(--rebill-bg);
+}
+
+.p-close,
+.p-corrected_claim,
+.p-patient_bill {
+  color: var(--close);
+  background: var(--close-bg);
+}
+
+.p-pending {
+  color: var(--ink-3);
+  background: var(--surface-2);
+}
+
+.cells {
+  display: flex;
+  gap: 5px;
+}
+
+.cell {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--rule-strong);
+}
+
+.c-running {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 3px var(--navy-soft);
+}
+
+.c-done {
+  background: var(--navy);
+  border-color: var(--navy);
+}
+
+.c-failed {
+  background: var(--failed);
+  border-color: var(--failed);
+}
+
+/* Struck through, not dimmed. A fainter "pending" would say this work is
+   unimportant; the truth is that there is no work here to do. */
+.c-na {
+  border-style: none;
+  background: linear-gradient(
+    to bottom right,
+    transparent 42%,
+    var(--rule-strong) 42%,
+    var(--rule-strong) 58%,
+    transparent 58%
+  );
+}
+
+.rulenote {
+  margin: 0;
+  padding: 10px 18px 20px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  max-width: 60ch;
+}
+
+.runchip.bad {
+  color: var(--failed);
+  border-color: var(--failed);
+}

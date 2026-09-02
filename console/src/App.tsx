@@ -1,18 +1,23 @@
 /**
- * The console shell, before it has a run to show.
+ * The console: a queue of claims, read from what runs recorded.
  *
- * A walking skeleton on purpose: everything here is the foundation the queue,
- * the claim detail and the inspector are built on - the palette, both themes,
- * the type, and the rule that motion stops when a viewer asks it to. Nothing
- * here reads a run, because nothing here needs to yet.
+ * Claim-centric on purpose. No analyst thinks in runs, so a run is plumbing here
+ * - it names where a claim was worked and has no screen of its own.
  */
 
-// Mirrors `matrix.PHASES`, which is the source of truth. Held here only while
-// the console has no run to read: once the server streams derived state, the
-// phases arrive with it rather than being spelled out twice in two languages.
-const PHASES = ["portal", "analysis", "emr", "appeal", "report"] as const;
+import { Queue } from "./Queue";
+import { useQueue } from "./useQueue";
+
+const CONNECTION_TEXT = {
+  connecting: "connecting",
+  replaying: "reading runs",
+  ready: "up to date",
+  lost: "disconnected",
+} as const;
 
 export function App() {
+  const { claims, phases, connection } = useQueue();
+
   return (
     <div className="shell">
       <header className="appbar">
@@ -21,11 +26,13 @@ export function App() {
         </span>
         <span className="wordmark">Denial Recovery</span>
         <span className="spacer" />
-        <span className="runchip">no run loaded</span>
+        <span className={`runchip ${connection === "lost" ? "bad" : ""}`}>
+          {CONNECTION_TEXT[connection]}
+        </span>
       </header>
 
       <nav className="rail" aria-label="Run phases">
-        {PHASES.map((phase) => (
+        {phases.map((phase) => (
           <span className="step" key={phase}>
             <span className="pip" />
             <span className="lbl">{phase}</span>
@@ -33,14 +40,20 @@ export function App() {
         ))}
       </nav>
 
-      <main className="empty">
-        <h1>Nothing to work yet.</h1>
-        <p>
-          The console reads a run directory. Start one with{" "}
-          <code>rcm-agent determine-all</code> and its claims will appear here,
-          ranked by what they are worth.
-        </p>
-      </main>
+      {claims.length === 0 && connection === "ready" ? (
+        <main className="empty">
+          <h1>Nothing to work yet.</h1>
+          <p>
+            The console reads a run directory. Start one with{" "}
+            <code>rcm-agent determine-all</code> and its claims will appear here,
+            ranked by what they are worth.
+          </p>
+        </main>
+      ) : (
+        <main>
+          <Queue claims={claims} phases={phases} />
+        </main>
+      )}
     </div>
   );
 }
