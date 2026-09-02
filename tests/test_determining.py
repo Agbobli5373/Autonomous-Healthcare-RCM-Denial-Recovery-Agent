@@ -571,3 +571,127 @@ def test_a_close_may_name_no_evidence_because_nothing_is_gathered() -> None:
     assert judge_client.requests, "the guardrails must not have answered this one"
     assert determination.evidence_required == ()
     assert "supplied from the catalogue" not in determination.rationale
+
+
+# --- what the run records about how it decided ------------------------------
+
+
+def kinds(recorder: Recorder) -> list[str]:
+    return [event.kind for event in recorder.events]
+
+
+def only(recorder: Recorder, kind: str) -> Event:
+    matches = [event for event in recorder.events if event.kind == kind]
+    assert len(matches) == 1, f"expected one {kind}, got {len(matches)}"
+    return matches[0]
+
+
+def test_the_guardrail_trace_is_recorded_before_the_determination() -> None:
+    """The trace is what happened first, and the record says so."""
+    _, recorder = run(a_claim(("CO", "16", ("MA130",), "78.00")), NoModelAllowed())
+
+    order = kinds(recorder)
+
+    assert order.index("guardrails") < order.index("determination")
+
+
+def test_a_guardrailed_claim_records_the_rules_that_passed_first() -> None:
+    """`CO-45` is answered by the second rule, so the first one is on the record.
+
+    A claim answered by the first rule could not tell these apart: the evidence
+    that the rules ran *in order* is the passed rule sitting ahead of the one
+    that fired.
+    """
+    _, recorder = run(a_claim(("CO", "45", (), "80.00")), NoModelAllowed())
+
+    detail = only(recorder, "guardrails").detail
+
+    assert detail["evaluated"] == [
+        {"rule": "unappealable-remark", "fired": False},
+        # The label the Determination ended up with rides on the rule that
+        # produced it, so the two events do not name the same firing differently.
+        {"rule": "nothing-was-refused", "fired": True, "guardrail": "no-denial"},
+    ]
+
+
+def test_a_guardrailed_run_shows_no_model_was_asked() -> None:
+    """The absence proves the model was not consulted; the trace proves why."""
+    _, recorder = run(a_claim(("CO", "16", ("MA130",), "78.00")), NoModelAllowed())
+
+    tools = [event.tool for event in recorder.events if event.kind in ("tool_call", "tool_result")]
+
+    assert "judge_denial" not in tools
+
+
+def test_a_judged_claim_records_every_rule_passing() -> None:
+    _, recorder = run(a_claim(("CO", "197", ("N706",), "1250.00")), ScriptedJudge("appeal"))
+
+    detail = only(recorder, "guardrails").detail
+
+    assert not any(entry["fired"] for entry in detail["evaluated"])  # pyright: ignore[reportIndexIssue, reportUnknownVariableType, reportUnknownArgumentType]
+    assert [entry["rule"] for entry in detail["evaluated"]] == [  # pyright: ignore[reportIndexIssue, reportUnknownVariableType]
+        "unappealable-remark",
+        "nothing-was-refused",
+        "non-appealable-code",
+    ]
+
+
+def test_the_facts_put_to_the_model_are_recorded_on_the_call() -> None:
+    """The inspector's claim is that the Determination was read off the document.
+
+    Recording the facts is what makes that checkable rather than asserted.
+    """
+    _, recorder = run(a_claim(("CO", "197", ("N706",), "1250.00")), ScriptedJudge("appeal"))
+
+    facts = only(recorder, "tool_call").detail["facts"]
+
+    assert isinstance(facts, str)
+    assert "CO-197" in facts and "N706" in facts
+
+
+def test_what_the_model_returned_is_recorded_as_a_result() -> None:
+    _, recorder = run(
+        a_claim(("CO", "197", ("N706",), "1250.00")),
+        ScriptedJudge("appeal", rationale="because the auth covered it"),
+    )
+
+    result = only(recorder, "tool_result")
+
+    assert result.tool == "judge_denial"
+    returned = result.detail["returned"]
+    assert isinstance(returned, dict)
+    assert returned["action"] == "appeal"
+    assert returned["rationale"] == "because the auth covered it"
+
+
+def test_a_refused_judgement_is_not_recorded_as_ok() -> None:
+    """The record must not show an accepted result the run then discarded.
+
+    A model answering outside its narrowed options is refused and fallen back
+    from; stamping that exchange `ok` would leave a reader an accepted model
+    result whose action contradicts the Determination sitting beside it.
+    """
+    _, recorder = run(a_claim(("CO", "236", (), "300.00")), ScriptedJudge("appeal"))
+
+    result = only(recorder, "tool_result")
+
+    assert result.outcome == "failed", "appeal was never among the options for CO-236"
+    assert result.detail["returned"]["action"] == "appeal"  # pyright: ignore[reportIndexIssue, reportUnknownVariableType, reportUnknownMemberType]
+    assert any(e.kind == "error" and e.outcome == "handled" for e in recorder.events)
+
+
+def test_the_system_prompt_is_never_recorded() -> None:
+    """A module constant, identical every run, already readable in source.
+
+    Persisting it would repeat the largest static string in the system into every
+    artifact and ship it publicly on every export, for nothing.
+    """
+    import json
+
+    from rcm_agent.agent.judgement import SYSTEM_PROMPT
+
+    _, recorder = run(a_claim(("CO", "197", ("N706",), "1250.00")), ScriptedJudge("appeal"))
+
+    dumped = json.dumps([event.to_dict() for event in recorder.events])
+
+    assert SYSTEM_PROMPT[:60] not in dumped

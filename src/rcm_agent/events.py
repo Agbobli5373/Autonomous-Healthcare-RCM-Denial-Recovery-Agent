@@ -33,6 +33,7 @@ Kind = Literal[
     "tool_call",
     "tool_result",
     "determination",
+    "guardrails",
     "recovery",
     "retry",
     "error",

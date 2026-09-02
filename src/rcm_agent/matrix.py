@@ -74,7 +74,7 @@ class ClaimMatrix:
             case "determination":
                 self._apply_determination(claim_id, event)
             case _:
-                # tool_call, tool_result and recovery all happen *within* a
+                # tool_call, tool_result, guardrails and recovery all happen *within* a
                 # phase. A recovery in particular must never mark a cell failed:
                 # the agent handled it, and the matrix says so by leaving the
                 # cell running.

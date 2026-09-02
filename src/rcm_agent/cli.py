@@ -17,13 +17,13 @@ from rich.table import Table
 from rcm_agent import demo_script
 from rcm_agent.agent import AgentRun, PortalAccess, Workspace, work_the_claim
 from rcm_agent.agent.client import planning_client
-from rcm_agent.agent.determining import determine_with_judgement
+from rcm_agent.agent.determining import determine_with_judgement, record_guardrails
 from rcm_agent.analysis.extract import Extraction
 from rcm_agent.browser.session import cloud_browser
 from rcm_agent.claim_from_document import ClaimIdentity, claim_from_extraction
 from rcm_agent.claim_io import load_claim
 from rcm_agent.config import MissingCredential, credential
-from rcm_agent.determination import determine
+from rcm_agent.determination import from_catalogue, run_guardrails
 from rcm_agent.domain import Determination
 from rcm_agent.events import EventStream
 from rcm_agent.fixtures.generate import generate_fixtures
@@ -275,7 +275,11 @@ def determine_command(claim_path: Path, runs_dir: Path) -> int:
 
     with run:
         stream.emit(phase="analysis", kind="phase_start", claim_id=claim.claim_id)
-        determination = determine(claim)
+        # The trace is reused rather than `determine` called, so this route
+        # records the guardrails without evaluating them twice.
+        trace = run_guardrails(claim)
+        record_guardrails(stream, claim.claim_id, trace)
+        determination = trace.determination or from_catalogue(claim)
         stream.emit(
             phase="analysis",
             kind="determination",
