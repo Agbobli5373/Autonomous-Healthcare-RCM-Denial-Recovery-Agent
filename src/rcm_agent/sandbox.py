@@ -113,6 +113,17 @@ class ServerStartupError(RuntimeError):
     """
 
 
+class SandboxUnreachable(RuntimeError):
+    """The control channel to the guest dropped part-way through a call.
+
+    Seen in practice during a long `pip install`: the websocket closed cleanly
+    (code 1000) mid-call and the SDK raised its own ConnectionError. It is a
+    platform blip rather than anything wrong with the code being run, so it is
+    named here and reported as one instead of arriving as a traceback with the
+    SDK's internals in it.
+    """
+
+
 class ProvisioningError(RuntimeError):
     """The sandbox came up but could not be made ready to do the work."""
 
@@ -158,14 +169,19 @@ class Sandbox:
         report:" followed by nothing — which is a worse diagnostic than no
         message at all, because it reads like the guest is unreachable.
         """
+        from solari_core.errors import ConnectionError as ChannelClosed
+
         out: list[str] = []
         err: list[str] = []
-        await self._handle.run_code(
-            code,
-            context_id=await self._context_id(),
-            on_stdout=out.append,
-            on_stderr=err.append,
-        )
+        try:
+            await self._handle.run_code(
+                code,
+                context_id=await self._context_id(),
+                on_stdout=out.append,
+                on_stderr=err.append,
+            )
+        except ChannelClosed as dropped:
+            raise SandboxUnreachable(f"the guest stopped answering: {dropped}") from dropped
         return "".join(out).strip(), "".join(err).strip()
 
     async def _put(self, guest_path: str, payload: bytes, *, timeout: float) -> None:

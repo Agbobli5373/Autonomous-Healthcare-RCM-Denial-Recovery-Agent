@@ -14,22 +14,33 @@ from rich.table import Table
 
 from rcm_agent import demo_script
 from rcm_agent.analysis.extract import Extraction
+from rcm_agent.browser.session import cloud_browser
 from rcm_agent.claim_io import load_claim
-from rcm_agent.config import MissingCredential
+from rcm_agent.config import MissingCredential, credential
 from rcm_agent.determination import determine
 from rcm_agent.domain import Determination
 from rcm_agent.events import EventStream
 from rcm_agent.fixtures.generate import generate_fixtures
 from rcm_agent.matrix import ClaimMatrix
 from rcm_agent.panel import make_panel
+from rcm_agent.portal_phase import PortalWork, work_the_portal
 from rcm_agent.run_directory import RunDirectory
-from rcm_agent.sandbox import ProvisioningError, ServerStartupError, UploadFailed
+from rcm_agent.sandbox import (
+    ProvisioningError,
+    SandboxUnreachable,
+    ServerStartupError,
+    UploadFailed,
+)
 from rcm_agent.sandbox_extraction import SOURCE_ROOT, ExtractionFailed, extract_document
 from rcm_agent.sandbox_hosting import hosted_mocks, keep_alive
 from rcm_agent.strict_json import RecordFileError
 
 if TYPE_CHECKING:  # imported lazily at run time so `--help` stays fast
     from fastapi import FastAPI
+
+PORTAL_USER = "provider"
+PORTAL_PASSWORD = "demo"
+"""The mock accepts anything; these exist so the run is reproducible, not secret."""
 
 EXIT_BAD_INPUT = 2
 EXIT_ENVIRONMENT = 3
@@ -104,6 +115,22 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data/fixtures/eobs/clm-2026-0001-eob.pdf"),
         help="The EOB the analysis kernel reads, to prove one sandbox does all three jobs",
+    )
+
+    browse = sub.add_parser(
+        "browse",
+        help="Drive the sandbox-hosted portal with a Solari cloud browser",
+    )
+    browse.add_argument(
+        "--claim",
+        default="CLM-2026-0001",
+        help="Which claim to fetch the EOB for (default: the CO-197 claim)",
+    )
+    browse.add_argument(
+        "--runs-dir",
+        type=Path,
+        default=Path("runs"),
+        help="Where run directories are written (default: ./runs)",
     )
 
     profile = sub.add_parser(
@@ -349,7 +376,13 @@ def host_mocks_command(runs_dir: Path, document: Path) -> int:
             # was fine and the environment could not carry it out.
             console.print(f"[bold red]{exc}[/]")
             return EXIT_BAD_INPUT
-        except (ServerStartupError, ProvisioningError, UploadFailed, ExtractionFailed) as exc:
+        except (
+            ServerStartupError,
+            ProvisioningError,
+            UploadFailed,
+            SandboxUnreachable,
+            ExtractionFailed,
+        ) as exc:
             # Reported as a message rather than re-raised, because the whole
             # point of the in-guest health check is that a server which never
             # bound gets named here instead of surfacing as a browser error
@@ -358,6 +391,62 @@ def host_mocks_command(runs_dir: Path, document: Path) -> int:
             console.print(f"[bold red]could not host the mocks[/] {exc}")
             run.fail(phase="setup", seq=run.last_seq, finished_at=datetime.now(UTC))
             return EXIT_ENVIRONMENT
+    return 0
+
+
+def browse_command(claim_id: str, runs_dir: Path) -> int:
+    """The whole browser leg: host the mocks, drive them, bring back the EOB.
+
+    Both halves are real. The portal is served from a Solari sandbox and reached
+    over its public preview URL, and the browser is a Solari cloud browser — so
+    this exercises the arrangement the demo runs on rather than a local stand-in.
+    """
+    console = Console()
+    run = RunDirectory.create(runs_dir, started_at=datetime.now(UTC))
+    stream = EventStream()
+    stream.add_sink(run)
+
+    async def go() -> PortalWork:
+        api_key = credential("SOLARI_API_KEY")
+        async with hosted_mocks(stream) as hosting:
+            portal = next(m for m in hosting.mocks if m.name == "payer-portal")
+            console.print(f"portal hosted at {portal.url_without_token}", style="dim")
+            async with cloud_browser(api_key, stream) as page:
+                return await work_the_portal(
+                    page,
+                    portal_url=portal.url,
+                    claim_id=claim_id,
+                    user=PORTAL_USER,
+                    password=PORTAL_PASSWORD,
+                    stream=stream,
+                    documents=run.documents_path,
+                    screenshots=run.screenshots_path,
+                )
+
+    with run:
+        try:
+            work = asyncio.run(go())
+        except KeyboardInterrupt:
+            console.print(f"\ninterrupted - partial run at {run.path}")
+            return EXIT_INTERRUPTED
+        except MissingCredential as exc:
+            console.print(f"[bold red]{exc}[/]")
+            return EXIT_BAD_INPUT
+        except (ServerStartupError, ProvisioningError, UploadFailed, SandboxUnreachable) as exc:
+            console.print(f"[bold red]could not host the mocks[/] {exc}")
+            run.fail(phase="setup", seq=run.last_seq, finished_at=datetime.now(UTC))
+            return EXIT_ENVIRONMENT
+
+        for step in work.steps:
+            console.print(f"  {step.tool:15} {step.outcome}")
+        if work.recovered:
+            console.print("recovered from the session expiry", style="dim")
+        if not work.ok:
+            console.print("[bold red]the portal phase did not finish[/]")
+            run.fail(phase="portal", seq=run.last_seq, finished_at=datetime.now(UTC))
+            return EXIT_ENVIRONMENT
+        console.print(f"EOB saved to {work.document}")
+        console.print(f"run at {run.path}")
     return 0
 
 
@@ -394,6 +483,8 @@ def main(argv: list[str] | None = None) -> int:
         return serve_practice_command(args.host, args.port)
     if args.command == "host-mocks":
         return host_mocks_command(args.runs_dir, args.document)
+    if args.command == "browse":
+        return browse_command(args.claim, args.runs_dir)
     if args.command == "practice-storage-state":
         return practice_storage_state_command(args.url, args.out)
     if args.command == "generate-fixtures":

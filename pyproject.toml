@@ -7,13 +7,17 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
-    # reportlab renders the synthetic remittances, and later the appeal PDF.
+    # reportlab renders the synthetic EOB documents, and later the appeal PDF.
     # Pillow draws and degrades the scanned fixture; reportlab pulls it in
     # anyway, but a module under src/ imports it directly, so it is declared.
     "pillow>=12.3.0",
     "python-multipart>=0.0.32",
     "reportlab>=5.0.1",
     "rich>=13.7",
+    # The agent drives the payer portal through a Solari cloud browser, so this
+    # is no longer spike-only. Pinned exactly, like the sandbox SDK: they are
+    # all 0.x and moving, and a silent minor bump would land mid-demo.
+    "solari-browser==0.1.3",
     "solari-sandbox==0.2.0",
     "uvicorn>=0.52.4",
 ]
