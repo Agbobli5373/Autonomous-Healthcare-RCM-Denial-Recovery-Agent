@@ -17,25 +17,29 @@ from typing import cast
 
 from rcm_agent.agent.loop import ModelClient
 from rcm_agent.config import credential, fingerprint
-from rcm_agent.events import EventStream
+from rcm_agent.events import EventStream, Phase
 
 ANTHROPIC_KEY = "ANTHROPIC_API_KEY"
 """Read from the environment or the gitignored `.env`, like the Solari key."""
 
 
-def planning_client(stream: EventStream) -> ModelClient:
+def planning_client(stream: EventStream, *, phase: Phase = "portal") -> ModelClient:
     """An async Anthropic client, with the key recorded only as a fingerprint.
 
     The key is passed explicitly rather than left to the SDK's own environment
     lookup, because this project keeps its credentials in a gitignored `.env`
     that nothing exports — and a client that silently found no key would fail
     later, mid-run, looking like a model problem.
+
+    `phase` because the same client serves the portal loop and the analysis
+    judgement, and an `open_planner` filed under `portal` in a run that never
+    opens the portal reads as a phase that ran and left no trace.
     """
     from anthropic import AsyncAnthropic
 
     key = credential(ANTHROPIC_KEY)
     stream.emit(
-        phase="portal",
+        phase=phase,
         kind="tool_call",
         tool="open_planner",
         detail={"key": fingerprint(key)},

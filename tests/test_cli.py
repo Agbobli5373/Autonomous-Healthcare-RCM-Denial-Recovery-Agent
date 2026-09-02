@@ -144,3 +144,31 @@ def test_no_staging_file_is_left_behind(tmp_path: Path) -> None:
 
     leftovers = list(only_run_directory(runs).glob(".*tmp*"))
     assert leftovers == []
+
+
+def test_local_extraction_reports_a_failure_instead_of_a_traceback(tmp_path: Path) -> None:
+    """`--local` is the branch likeliest to fail, and it must fail like the other.
+
+    A scanned EOB needs tesseract on this machine, which `--local` often will not
+    have. Before this, that surfaced as a raw `TesseractNotFoundError` out of the
+    CLI, leaving a run directory stuck at `running`; the sandbox branch has always
+    reported `ExtractionFailed`, which the command already knows how to end on.
+    """
+    import asyncio
+    from datetime import UTC, datetime
+
+    from rcm_agent.run_directory import RunDirectory
+    from rcm_agent.sandbox_extraction import ExtractionFailed
+
+    run = RunDirectory.create(tmp_path / "runs", started_at=datetime.now(UTC))
+    missing = tmp_path / "not-a-pdf.pdf"
+    missing.write_text("this is not a PDF at all", encoding="utf-8")
+
+    async def read_it() -> None:
+        async with cli.extractions(EventStream(), run, local=True) as read_document:
+            await read_document(missing)
+
+    with pytest.raises(ExtractionFailed) as failure:
+        asyncio.run(read_it())
+
+    assert missing.name in str(failure.value), "the report should name the document"

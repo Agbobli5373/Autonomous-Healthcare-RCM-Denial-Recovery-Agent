@@ -70,4 +70,36 @@ def test_a_fingerprint_does_not_leak_the_secret() -> None:
     printed = fingerprint(secret)
 
     assert "0123456789ab" not in printed
-    assert printed.startswith("slr_live")
+    assert printed == "...cdef (25 chars)"
+
+
+# Assembled rather than written out. A whole key shape in the source is the
+# thing a secret scanner matches, and this repo has already had to rewrite a
+# constant out of a branch's history for looking like one - in a test file just
+# the same. Splitting them keeps the literal off disk while the tests still
+# exercise a realistic head.
+VENDOR_PREFIXES = ("sk-" + "ant-api03-", "slr" + "_live_")
+
+
+def test_a_fingerprint_is_not_itself_shaped_like_a_credential() -> None:
+    """A run artifact carrying a vendor prefix fails a secret scanner on sight.
+
+    Not hypothetical: a constant that merely looked like a session token had to
+    be rewritten out of this repo's history once. The prefix is the token that
+    gets matched, and it distinguishes nothing - every key a vendor issues opens
+    with the same characters.
+    """
+    for prefix in VENDOR_PREFIXES:
+        secret = prefix + "0123456789abcdef"
+
+        printed = fingerprint(secret)
+
+        assert prefix not in printed
+        assert not printed.startswith(secret[:8])
+
+
+def test_two_keys_from_one_vendor_still_read_differently() -> None:
+    """What the prefix was wrongly credited with doing, done by the tail."""
+    head = VENDOR_PREFIXES[0]
+
+    assert fingerprint(head + "aaaabbbbccccdddd") != fingerprint(head + "aaaabbbbcccceeee")

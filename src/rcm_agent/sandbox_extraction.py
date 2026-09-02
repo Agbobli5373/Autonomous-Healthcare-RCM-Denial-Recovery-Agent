@@ -23,8 +23,10 @@ had — which is the same reason `events.ndjson` is flushed per event.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shutil
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import cast
 
@@ -109,6 +111,29 @@ def _extraction_from(payload: dict[str, object]) -> Extraction:
     )
 
 
+@contextlib.asynccontextmanager
+async def provisioned_sandbox(stream: EventStream) -> AsyncGenerator[Sandbox]:
+    """A sandbox of our own, provisioned and loaded with the analysis code.
+
+    Every caller that owns its sandbox wants the same four steps in the same
+    order, and the events are part of the contract rather than decoration: the
+    panel reads `provision_sandbox` to show the phase starting, and a caller
+    that open-coded the sequence would sooner or later emit a different one.
+    """
+    async with sandbox_session(credential("SOLARI_API_KEY")) as owned:
+        stream.emit(phase="analysis", kind="tool_call", tool="provision_sandbox")
+        provisioning = await owned.provision()
+        stream.emit(
+            phase="analysis",
+            kind="tool_result",
+            tool="provision_sandbox",
+            outcome="ok",
+            detail=provisioning.as_event_detail(),
+        )
+        await owned.upload_analysis_code(SOURCE_ROOT)
+        yield owned
+
+
 async def extract_document(
     document: Path,
     run: RunDirectory,
@@ -150,17 +175,7 @@ async def extract_document(
         if sandbox is not None:
             raw = await analyse(sandbox)
         else:
-            async with sandbox_session(credential("SOLARI_API_KEY")) as owned:
-                stream.emit(phase="analysis", kind="tool_call", tool="provision_sandbox")
-                provisioning = await owned.provision()
-                stream.emit(
-                    phase="analysis",
-                    kind="tool_result",
-                    tool="provision_sandbox",
-                    outcome="ok",
-                    detail=provisioning.as_event_detail(),
-                )
-                await owned.upload_analysis_code(SOURCE_ROOT)
+            async with provisioned_sandbox(stream) as owned:
                 raw = await analyse(owned)
     except ProvisioningError as exc:
         stream.emit(phase="analysis", kind="error", outcome="failed", detail={"error": str(exc)})

@@ -16,7 +16,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, TextIO
 
+from rcm_agent.domain import Determination
 from rcm_agent.events import Event, Phase
+from rcm_agent.fixtures.naming import claim_filename
 
 Status = Literal["running", "completed", "failed"]
 
@@ -152,6 +154,19 @@ class RunDirectory:
             self.run_json_path,
             json.dumps(self.state.to_dict(), indent=2, ensure_ascii=False) + "\n",
         )
+
+    def write_claim(self, determination: Determination) -> Path:
+        """One file per claim, in the domain's own vocabulary.
+
+        `claims/<id>.json`, written atomically like everything else here, so a
+        run interrupted mid-write leaves the previous file rather than half of
+        the next one. The shape is `Determination.to_dict()` — Action, rationale,
+        the guardrail if one fired, and a Priority that is `null` when it did,
+        because nothing was weighed.
+        """
+        destination = self.claims_path / claim_filename(determination.claim_id)
+        _write_atomically(destination, json.dumps(determination.to_dict(), indent=2) + "\n")
+        return destination
 
     def complete(self, *, finished_at: datetime, summary: dict[str, int] | None = None) -> None:
         self.state.status = "completed"

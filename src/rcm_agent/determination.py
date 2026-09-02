@@ -22,7 +22,7 @@ from rcm_agent.domain import Adjustment, Claim, Determination, Priority
 GuardrailRule = Callable[[Claim], Determination | None]
 
 
-def _governing_denial(claim: Claim) -> Adjustment:
+def governing_denial(claim: Claim) -> Adjustment:
     """The denial the Determination answers.
 
     The largest by amount: where a claim carries several, the money is the
@@ -67,7 +67,7 @@ def _non_appealable_governing_code(claim: Claim) -> Determination | None:
     if not claim.denials:
         return None
 
-    adjustment = _governing_denial(claim)
+    adjustment = governing_denial(claim)
     if adjustment.code not in NON_APPEALABLE_CODES:
         return None
 
@@ -127,13 +127,32 @@ governing denial for the third to look at.
 """
 
 
-def determine(claim: Claim) -> Determination:
+def guardrailed(claim: Claim) -> Determination | None:
+    """The first guardrail that fires, if any.
+
+    Split out because both routes to a Determination begin here and neither may
+    skip it - ADR-0002 is only true while the guardrails run first, so there is
+    one loop rather than a copy per caller.
+    """
     for guardrail in GUARDRAILS:
         determination = guardrail(claim)
         if determination is not None:
             return determination
+    return None
 
-    denial = _governing_denial(claim)
+
+def determine(claim: Claim) -> Determination:
+    """Guardrails, then the catalogue's documented default for the family.
+
+    The model-free Determination: what this project can say about a denial
+    without asking anything. `agent.determining.determine_with_judgement` is the
+    fuller route, and falls back to this one when a judgement is unusable.
+    """
+    determination = guardrailed(claim)
+    if determination is not None:
+        return determination
+
+    denial = governing_denial(claim)
     profile = profile_for(denial.code)
 
     return Determination(
