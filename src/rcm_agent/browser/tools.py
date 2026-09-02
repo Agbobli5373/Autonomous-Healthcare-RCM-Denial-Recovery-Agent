@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING, Any
 from rcm_agent.browser.perception import accessibility_tree
 from rcm_agent.browser.plumbing import (
     ToolOutcome,
-    expired,
     finish,
     gave_up,
     page_url,
@@ -50,6 +49,16 @@ from rcm_agent.events import EventStream
 
 if TYPE_CHECKING:  # pragma: no cover
     from patchright.async_api import Locator, Page
+
+
+def expired(page: Page) -> bool:
+    """The portal answers an expired session with a redirect to its login page.
+
+    Portal-specific, so it lives here rather than in the shared plumbing: the
+    practice-management system has no such behaviour and never asks.
+    """
+    return "/login" in page.url
+
 
 WORKLIST_READY_TIMEOUT_MS = 20_000
 """Long enough for the deliberate XHR latency, short enough to fail a hung page."""

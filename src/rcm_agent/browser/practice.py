@@ -36,8 +36,13 @@ from rcm_agent.browser.plumbing import (
     retryable,
     starting,
 )
-from rcm_agent.browser.retry import RetriesExhausted, RetryPolicy, with_retries
-from rcm_agent.events import EventStream
+from rcm_agent.browser.retry import (
+    MechanicalFailure,
+    RetriesExhausted,
+    RetryPolicy,
+    with_retries,
+)
+from rcm_agent.events import EventStream, Phase
 from rcm_agent.practice_io import parse_chart_date
 from rcm_agent.strict_json import RecordFileError
 
@@ -59,7 +64,20 @@ They are what the locators match on — this system has no automation hooks eith
 """
 
 NO_AUTHORIZATION = "No authorization on file"
-"""What the chart says when there is nothing to find. A real answer, not a fault."""
+"""What the chart says when there is nothing to find. A real answer, not a fault.
+
+Matched against the page rather than assumed from a missing field — see
+`read_auth_record`.
+"""
+
+PHASE: Phase = "emr"
+"""Where these events belong in the record.
+
+Not `portal`. The run directory and the progress matrix both have a column for
+this system, and events filed under the wrong phase would leave that column
+empty on a live run while the scripted demo filled it — a record that disagrees
+with itself about which system did what.
+"""
 
 
 async def _open_chart(page: Page, claim_id: str, *, base_url: str, rules: RetryPolicy) -> None:
@@ -76,7 +94,7 @@ async def _open_chart(page: Page, claim_id: str, *, base_url: str, rules: RetryP
     """
     await retryable(page.goto(page_url(base_url, "/search.do")), "opening the chart search")
     await retryable(
-        page.get_by_role("textbox").first.fill(claim_id, timeout=rules.action_timeout_ms),
+        page.get_by_role("textbox").fill(claim_id, timeout=rules.action_timeout_ms),
         "typing the claim number",
     )
     await retryable(
@@ -102,7 +120,7 @@ async def read_auth_record(
 ) -> ToolOutcome:
     """Open a claim's chart and read its prior Authorization as typed fields."""
     rules = policy or RetryPolicy()
-    starting(stream, "read_auth_record", claim_id)
+    starting(stream, "read_auth_record", claim_id, PHASE)
 
     async def attempt() -> dict[str, str]:
         await _open_chart(page, claim_id, base_url=base_url, rules=rules)
@@ -113,7 +131,9 @@ async def read_auth_record(
             attempt, tool="read_auth_record", stream=stream, claim_id=claim_id, policy=rules
         )
     except RetriesExhausted as exhausted:
-        return await gave_up(page, stream, "read_auth_record", exhausted, screenshots, claim_id)
+        return await gave_up(
+            page, stream, "read_auth_record", exhausted, screenshots, claim_id, PHASE
+        )
 
     if not chart:
         return await finish(
@@ -124,20 +144,29 @@ async def read_auth_record(
             {"url": page.url},
             screenshots=screenshots,
             claim_id=claim_id,
+            phase=PHASE,
         )
 
     if AUTHORIZATION_NUMBER not in chart:
-        # The chart exists and holds no Authorization. That is an answer about
-        # the world, and a claim whose denial cannot be refuted this way is a
-        # real outcome rather than a failure to read the page.
+        # A missing field is not the same as the chart saying there is nothing.
+        # Reporting "no authorization on file" because a label was absent would
+        # turn a half-rendered page into a confident answer about a patient —
+        # the exact plausible-wrong-answer this module claims to refuse. So the
+        # page is asked, and a chart that says neither is a fault.
+        says_none = NO_AUTHORIZATION.casefold() in (await page.content()).casefold()
         return await finish(
             page,
             stream,
             "read_auth_record",
-            "not_found",
-            {"reason": NO_AUTHORIZATION, "patient": chart.get("Name", "")},
+            "not_found" if says_none else "unavailable",
+            (
+                {"reason": NO_AUTHORIZATION, "patient": chart.get("Name", "")}
+                if says_none
+                else {"error": "the chart showed neither an Authorization nor a note saying none"}
+            ),
             screenshots=screenshots,
             claim_id=claim_id,
+            phase=PHASE,
         )
 
     try:
@@ -161,6 +190,7 @@ async def read_auth_record(
             {"error": f"the chart did not parse: {unreadable}"},
             screenshots=screenshots,
             claim_id=claim_id,
+            phase=PHASE,
         )
 
     return await finish(
@@ -171,6 +201,7 @@ async def read_auth_record(
         detail,
         screenshots=screenshots,
         claim_id=claim_id,
+        phase=PHASE,
     )
 
 
@@ -191,7 +222,7 @@ async def write_note(
     the practice-management system could not be a static page.
     """
     rules = policy or RetryPolicy()
-    starting(stream, "write_note", claim_id)
+    starting(stream, "write_note", claim_id, PHASE)
 
     if not text.strip():
         return await finish(
@@ -202,13 +233,25 @@ async def write_note(
             {"reason": "an empty note is not worth writing"},
             screenshots=screenshots,
             claim_id=claim_id,
+            phase=PHASE,
         )
 
     async def attempt() -> bool:
         if claim_id not in page.url:
             await _open_chart(page, claim_id, base_url=base_url, rules=rules)
+
+        # Checked before writing, so a retry cannot leave two copies. The portal's
+        # tools are all reads and could be retried freely; this one changes the
+        # world, and a click that raised *after* it landed would otherwise append
+        # the note a second time.
+        if text in await page.content():
+            return True
+
+        # No `.last`: the chart has exactly one textbox, and Playwright's strict
+        # locators fail loudly if that ever stops being true. Picking by position
+        # would quietly write into whichever box happened to be there.
         await retryable(
-            page.get_by_role("textbox").last.fill(text, timeout=rules.action_timeout_ms),
+            page.get_by_role("textbox").fill(text, timeout=rules.action_timeout_ms),
             "typing the note",
         )
         await retryable(
@@ -216,26 +259,20 @@ async def write_note(
             "saving the note",
         )
         await retryable(page.wait_for_load_state(), "waiting for the chart to come back")
-        # Read it back off the reloaded page rather than trusting the click.
-        return text in await page.content()
+        # Read it back off the reloaded page rather than trusting the click. A
+        # save that did not land is mechanical - the next attempt may well work -
+        # so it is raised rather than returned, and the retry policy handles it.
+        if text not in await page.content():
+            raise MechanicalFailure("the note was not on the chart after saving")
+        return True
 
     try:
-        landed = await with_retries(
+        await with_retries(
             attempt, tool="write_note", stream=stream, claim_id=claim_id, policy=rules
         )
     except RetriesExhausted as exhausted:
-        return await gave_up(page, stream, "write_note", exhausted, screenshots, claim_id)
+        return await gave_up(page, stream, "write_note", exhausted, screenshots, claim_id, PHASE)
 
-    if not landed:
-        return await finish(
-            page,
-            stream,
-            "write_note",
-            "unavailable",
-            {"error": "the note did not appear on the chart after saving"},
-            screenshots=screenshots,
-            claim_id=claim_id,
-        )
     return await finish(
         page,
         stream,
@@ -244,4 +281,5 @@ async def write_note(
         {"characters": len(text), "url": page.url},
         screenshots=screenshots,
         claim_id=claim_id,
+        phase=PHASE,
     )

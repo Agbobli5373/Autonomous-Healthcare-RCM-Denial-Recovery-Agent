@@ -132,7 +132,13 @@ class AgentRun:
 
     @property
     def ok(self) -> bool:
-        return self.document is not None
+        """The whole job: the EOB in hand and the finding written down.
+
+        It meant only "a document arrived", so an agent that fetched the EOB and
+        stopped — leaving the question the claim was sent to answer wide open —
+        finished green and exited zero.
+        """
+        return self.document is not None and self.noted
 
 
 class ModelClient(Protocol):
@@ -403,11 +409,25 @@ def _spoken(response: Any) -> str:
     )
 
 
+AUDIT_ONLY: frozenset[str] = frozenset({"path", "bytes", "characters"})
+"""Fields the record wants and the model has no use for.
+
+A *deny* list, not an allow list. It was an allow list, and it silently dropped
+every field `read_auth_record` returns — so the model was handed `{"outcome":
+"ok"}` and asked to compare a validity range it had never been shown. The tool
+was typed, the prompt described the comparison, and the data never arrived.
+
+Deny is the safer default here: a new tool that returns something useful is
+readable by the model without anyone remembering to add it, and the cost of
+getting this wrong in that direction is a few tokens rather than a silent
+lobotomy.
+"""
+
+
 def _readable(detail: dict[str, Any]) -> dict[str, Any]:
     """Trim a tool's detail to what helps the model decide.
 
     Local paths and byte counts are audit material, not planning material, and
     every token of them is paid for on each subsequent turn.
     """
-    keep = ("claims", "pages_walked", "url", "result")
-    return {key: value for key, value in detail.items() if key in keep}
+    return {key: value for key, value in detail.items() if key not in AUDIT_ONLY}

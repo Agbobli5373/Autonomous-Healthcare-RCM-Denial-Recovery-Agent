@@ -73,19 +73,24 @@ async def cloud_browser(
         kind="tool_call",
         tool="open_browser",
         detail={
-            "which": label,
+            "system": label,
             "key": fingerprint(api_key),
             "profile": profile_id or ("saved storage state" if storage_state else "none"),
         },
     )
 
-    session: Any = await client.launch(
-        profile_id=profile_id,
-        # Both deliberate, and both must stay false. See the module docstring.
-        stealth=False,
-        captcha=False,
-    )
+    # Inside the `try`, so a launch that fails still closes the client. The
+    # failure this matters for is the concurrency limit, which arrives exactly
+    # when a second browser is being opened beside a first — and leaking the
+    # client there would make the next attempt worse, not better.
+    session: Any = None
     try:
+        session = await client.launch(
+            profile_id=profile_id,
+            # Both deliberate, and both must stay false. See the module docstring.
+            stealth=False,
+            captcha=False,
+        )
         # A saved profile, applied to the context. Solari profiles *are*
         # Playwright storage states, and this SDK exposes `profile_id` on launch
         # but no way to create one, so the state goes on the context directly.
@@ -93,7 +98,7 @@ async def cloud_browser(
         # than from whoever last signed on by hand.
         context = await session.raw.new_context(
             accept_downloads=DOWNLOADS_ARE_ACCEPTED,
-            **({"storage_state": storage_state} if storage_state else {}),
+            storage_state=as_storage_state(storage_state) if storage_state else None,
         )
         page: Page = await context.new_page()
         stream.emit(
@@ -101,11 +106,12 @@ async def cloud_browser(
             kind="tool_result",
             tool="open_browser",
             outcome="ok",
-            detail={"which": label, "session": session.id, "expires_at": session.expires_at},
+            detail={"system": label, "session": session.id, "expires_at": session.expires_at},
         )
         yield page
     finally:
-        with contextlib.suppress(Exception):
-            await session.close()
+        if session is not None:
+            with contextlib.suppress(Exception):
+                await session.close()
         with contextlib.suppress(Exception):
             await client.close()

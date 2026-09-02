@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any, cast
 
@@ -36,6 +37,10 @@ from rcm_agent.events import Event, EventStream
 from rcm_agent.mocks.practice_management import storage_state as practice_storage_state
 
 # --- a model made of tape --------------------------------------------------
+
+
+DENIED_PROCEDURE = "E0601"
+"""The CPAP device the CO-197 denial is about."""
 
 
 @dataclass
@@ -81,8 +86,8 @@ class ScriptedModel:
 
     async def create(self, **kwargs: Any) -> Reply:
         self.calls.append(kwargs)
-        outcomes = _outcomes_so_far(kwargs["messages"])
-        decision = self.policy(outcomes)
+        results = _results_so_far(kwargs["messages"])
+        decision = self.policy(results)
         if decision is None:
             return Reply(content=[TextBlock("I have the EOB.")], stop_reason="end_turn")
         name, arguments = decision
@@ -93,9 +98,15 @@ class ScriptedModel:
         )
 
 
-def _outcomes_so_far(messages: list[dict[str, Any]]) -> list[str]:
-    """Every tool outcome the model has been shown, in order."""
-    seen: list[str] = []
+def _results_so_far(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every tool result the model has been shown, in order, in full.
+
+    The whole payload rather than only the outcome string, because a policy that
+    is meant to stand in for a model has to be able to *reason* over what it was
+    told — comparing a validity range against a date of service is the point of
+    this leg, and it cannot be done from the word "ok".
+    """
+    seen: list[dict[str, Any]] = []
     for message in messages:
         content: object = message.get("content")
         if message.get("role") != "user" or not isinstance(content, list):
@@ -105,26 +116,34 @@ def _outcomes_so_far(messages: list[dict[str, Any]]) -> list[str]:
                 continue
             block = cast("dict[str, Any]", entry)
             if block.get("type") == "tool_result":
-                seen.append(str(json.loads(str(block["content"]))["outcome"]))
+                seen.append(cast("dict[str, Any]", json.loads(str(block["content"]))))
     return seen
 
 
-def a_competent_agent(outcomes: list[str]) -> tuple[str, dict[str, Any]] | None:
-    """Signs in, finds the claim, opens it, downloads. Recovers if signed out.
+def _outcomes(results: list[dict[str, Any]]) -> list[str]:
+    return [str(r["outcome"]) for r in results]
+
+
+def a_competent_agent(results: list[dict[str, Any]]) -> tuple[str, dict[str, Any]] | None:
+    """Works the claim across both systems, and reasons about what it reads.
 
     Written as a policy over what it has been told rather than as a fixed list,
-    so the recovery is a decision it reaches — the same shape the real model's
-    is, and the reason this test proves anything about the loop.
+    so the recovery and the conclusion are decisions it *reaches*. That is the
+    same shape the real model's are, and the reason these tests prove anything
+    about the loop rather than about a script.
     """
+    outcomes = _outcomes(results)
     if outcomes and outcomes[-1] == "session_expired":
         return "log_in", {}
-    # Progress since the last time the portal signed us out. Counting every
+
+    # Progress since the last time the portal signed us out. Counting every `ok`
     # ever seen would have it resume mid-sequence after a recovery and reach for
     # the EOB with no claim open - which is what the first version did, and what
     # a real model would have no reason to do either.
     step = 0
     for outcome in outcomes:
         step = 0 if outcome == "session_expired" else step + (outcome == "ok")
+
     if step == 0:
         return "log_in", {}
     if step == 1:
@@ -133,11 +152,44 @@ def a_competent_agent(outcomes: list[str]) -> tuple[str, dict[str, Any]] | None:
         return "open_claim", {"claim_id": HERO_CLAIM}
     if step == 3:
         return "download_eob", {"claim_id": HERO_CLAIM}
+    if step == 4:
+        return "read_auth_record", {"claim_id": HERO_CLAIM}
+    if step == 5:
+        return "write_note", {"claim_id": HERO_CLAIM, "text": _conclusion(results)}
     return None
 
 
-def an_agent_that_gives_up(outcomes: list[str]) -> tuple[str, dict[str, Any]] | None:
+def _conclusion(results: list[dict[str, Any]]) -> str:
+    """The reasoning step, made from the typed fields the tool returned.
+
+    This is what the ticket means by the agent reaching a conclusion: nothing
+    told this policy whether the Authorization covers the claim. It compares the
+    range against the date of service and the code against the scope, and says
+    what it found.
+    """
+    record = next(r for r in results if "authorization_number" in r)
+    service = date.fromisoformat(str(record["date_of_service"]))
+    valid_from = date.fromisoformat(str(record["valid_from"]))
+    valid_to = date.fromisoformat(str(record["valid_to"]))
+    in_range = valid_from <= service <= valid_to
+    in_scope = DENIED_PROCEDURE in record["covered_procedure_codes"]
+
+    if in_range and in_scope:
+        return (
+            f"Payer denied CO-197 asserting no prior authorization. Chart holds "
+            f"{record['authorization_number']}, valid {valid_from} to {valid_to}, "
+            f"covering {DENIED_PROCEDURE}. Date of service {service} falls inside "
+            f"that range, so the denial is refutable."
+        )
+    return (
+        f"Authorization {record['authorization_number']} does not answer this denial: "
+        f"date of service {service} in range={in_range}, {DENIED_PROCEDURE} in scope={in_scope}."
+    )
+
+
+def an_agent_that_gives_up(results: list[dict[str, Any]]) -> tuple[str, dict[str, Any]] | None:
     """Signs in, gets bounced, and stops instead of recovering."""
+    outcomes = _outcomes(results)
     if outcomes and outcomes[-1] == "session_expired":
         return None
     done = [o for o in outcomes if o == "ok"]
@@ -148,11 +200,11 @@ def an_agent_that_gives_up(outcomes: list[str]) -> tuple[str, dict[str, Any]] | 
     return "open_claim", {"claim_id": HERO_CLAIM}
 
 
-def an_agent_that_never_stops(outcomes: list[str]) -> tuple[str, dict[str, Any]]:
+def an_agent_that_never_stops(results: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
     return "log_in", {}
 
 
-def an_agent_that_invents_a_tool(outcomes: list[str]) -> tuple[str, dict[str, Any]]:
+def an_agent_that_invents_a_tool(results: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
     return "escalate_to_a_human", {}
 
 
@@ -179,10 +231,10 @@ class Driven:
 
 def drive(
     portal_url: str,
+    practice_url: str,
     tmp_path: Path,
     policy: Any,
     recorder: Recorder | None = None,
-    practice_url: str | None = None,
 ) -> Driven:
     """Run one agent against real browsers and both really-served systems.
 
@@ -207,12 +259,10 @@ def drive(
             portal_context = await browser.new_context(accept_downloads=True)
             portal_page = await portal_context.new_page()
 
-            practice_page = portal_page
-            if practice_url:
-                practice_context = await browser.new_context(
-                    storage_state=as_storage_state(practice_storage_state(practice_url))
-                )
-                practice_page = await practice_context.new_page()
+            practice_context = await browser.new_context(
+                storage_state=as_storage_state(practice_storage_state(practice_url))
+            )
+            practice_page = await practice_context.new_page()
             try:
                 return await work_the_claim(
                     Workspace(
@@ -221,7 +271,7 @@ def drive(
                             url=portal_url, user=PORTAL_USER, password=PORTAL_PASSWORD
                         ),
                         practice_page=practice_page,
-                        practice_url=practice_url or portal_url,
+                        practice_url=practice_url,
                     ),
                     claim_id=HERO_CLAIM,
                     stream=stream,
@@ -240,12 +290,12 @@ def drive(
 
 @needs_browser
 def test_the_agent_reaches_the_claim_and_downloads_its_eob(
-    fresh_portal: str, tmp_path: Path
+    fresh_portal: str, practice_url: str, tmp_path: Path
 ) -> None:
     """Unattended, from an opening instruction and four tools."""
     from rcm_agent.mocks import fixtures_data
 
-    driven = drive(fresh_portal, tmp_path, a_competent_agent)
+    driven = drive(fresh_portal, practice_url, tmp_path, a_competent_agent)
 
     assert driven.run.ok, driven.run
     claim = fixtures_data.find(HERO_CLAIM)
@@ -256,10 +306,10 @@ def test_the_agent_reaches_the_claim_and_downloads_its_eob(
 
 @needs_browser
 def test_the_tools_that_ran_are_the_ones_the_model_asked_for(
-    fresh_portal: str, tmp_path: Path
+    fresh_portal: str, practice_url: str, tmp_path: Path
 ) -> None:
     """No sequence in the loop. Change the policy and the run changes with it."""
-    driven = drive(fresh_portal, tmp_path, a_competent_agent)
+    driven = drive(fresh_portal, practice_url, tmp_path, a_competent_agent)
 
     assert [step.tool for step in driven.run.steps] == [
         "log_in",
@@ -269,6 +319,8 @@ def test_the_tools_that_ran_are_the_ones_the_model_asked_for(
         "search_claims",
         "open_claim",
         "download_eob",
+        "read_auth_record",
+        "write_note",
     ]
 
 
@@ -277,7 +329,7 @@ def test_the_tools_that_ran_are_the_ones_the_model_asked_for(
 
 @needs_browser
 def test_the_expiry_is_detected_by_the_tool_and_recovered_by_the_agent(
-    fresh_portal: str, tmp_path: Path
+    fresh_portal: str, practice_url: str, tmp_path: Path
 ) -> None:
     """The split the ticket asks for, both halves in one run.
 
@@ -285,7 +337,7 @@ def test_the_expiry_is_detected_by_the_tool_and_recovered_by_the_agent(
     `session_expired` because it landed on the login page. The decision is the
     model's: this policy answers that outcome by signing in again.
     """
-    driven = drive(fresh_portal, tmp_path, a_competent_agent)
+    driven = drive(fresh_portal, practice_url, tmp_path, a_competent_agent)
 
     expired = [s for s in driven.run.steps if s.outcome == "session_expired"]
     assert [s.tool for s in expired] == ["open_claim"], "the tool did not detect the expiry"
@@ -298,7 +350,7 @@ def test_the_expiry_is_detected_by_the_tool_and_recovered_by_the_agent(
 
 @needs_browser
 def test_no_recovery_is_recorded_when_the_agent_does_not_recover(
-    fresh_portal: str, tmp_path: Path
+    fresh_portal: str, practice_url: str, tmp_path: Path
 ) -> None:
     """Proof the loop observes the decision rather than making it.
 
@@ -306,7 +358,7 @@ def test_no_recovery_is_recorded_when_the_agent_does_not_recover(
     were driving, a `recovery` would be recorded here anyway — and the record
     would be claiming something the agent never did.
     """
-    driven = drive(fresh_portal, tmp_path, an_agent_that_gives_up)
+    driven = drive(fresh_portal, practice_url, tmp_path, an_agent_that_gives_up)
 
     assert any(s.outcome == "session_expired" for s in driven.run.steps)
     assert driven.of_kind("recovery") == []
@@ -315,22 +367,26 @@ def test_no_recovery_is_recorded_when_the_agent_does_not_recover(
 
 
 @needs_browser
-def test_a_recovery_is_never_recorded_as_an_error(fresh_portal: str, tmp_path: Path) -> None:
+def test_a_recovery_is_never_recorded_as_an_error(
+    fresh_portal: str, practice_url: str, tmp_path: Path
+) -> None:
     """It is handled behaviour, and the schema has to say so."""
-    driven = drive(fresh_portal, tmp_path, a_competent_agent)
+    driven = drive(fresh_portal, practice_url, tmp_path, a_competent_agent)
 
     assert driven.of_kind("error") == []
     assert driven.of_kind("recovery")
 
 
 @needs_browser
-def test_retry_and_recovery_are_different_kinds(fresh_portal: str, tmp_path: Path) -> None:
+def test_retry_and_recovery_are_different_kinds(
+    fresh_portal: str, practice_url: str, tmp_path: Path
+) -> None:
     """One is a click that missed; the other is the agent changing its plan.
 
     A clean run has recoveries and no retries, which is only a meaningful
     statement because they are separate kinds rather than one event with a flag.
     """
-    driven = drive(fresh_portal, tmp_path, a_competent_agent)
+    driven = drive(fresh_portal, practice_url, tmp_path, a_competent_agent)
 
     assert driven.of_kind("recovery")
     assert driven.of_kind("retry") == [], "a clean run should not have retried anything"
@@ -341,9 +397,9 @@ def test_retry_and_recovery_are_different_kinds(fresh_portal: str, tmp_path: Pat
 
 @needs_browser
 def test_token_usage_is_accumulated_and_logged_for_the_run(
-    fresh_portal: str, tmp_path: Path
+    fresh_portal: str, practice_url: str, tmp_path: Path
 ) -> None:
-    driven = drive(fresh_portal, tmp_path, a_competent_agent)
+    driven = drive(fresh_portal, practice_url, tmp_path, a_competent_agent)
 
     assert driven.run.usage.input_tokens > 0
     assert driven.run.usage.output_tokens > 0
@@ -365,9 +421,11 @@ def test_usage_survives_a_response_that_reports_none() -> None:
 
 
 @needs_browser
-def test_a_model_that_never_stops_is_stopped(fresh_portal: str, tmp_path: Path) -> None:
+def test_a_model_that_never_stops_is_stopped(
+    fresh_portal: str, practice_url: str, tmp_path: Path
+) -> None:
     """A confused model must cost a bounded number of calls, not a bill."""
-    driven = drive(fresh_portal, tmp_path, an_agent_that_never_stops)
+    driven = drive(fresh_portal, practice_url, tmp_path, an_agent_that_never_stops)
 
     assert len(driven.model.calls) == MAX_STEPS
     assert not driven.run.ok
@@ -375,11 +433,11 @@ def test_a_model_that_never_stops_is_stopped(fresh_portal: str, tmp_path: Path) 
 
 @needs_browser
 def test_a_tool_the_schemas_never_offered_is_a_bug_not_a_result(
-    fresh_portal: str, tmp_path: Path
+    fresh_portal: str, practice_url: str, tmp_path: Path
 ) -> None:
     """Feeding it back as an error would leave the model guessing at a bad menu."""
     with pytest.raises(UnknownTool, match="escalate_to_a_human"):
-        drive(fresh_portal, tmp_path, an_agent_that_invents_a_tool)
+        drive(fresh_portal, practice_url, tmp_path, an_agent_that_invents_a_tool)
 
 
 # --- what the model is and is not told -------------------------------------
@@ -430,7 +488,7 @@ def test_the_prompt_explains_the_outcomes_without_prescribing_the_answer() -> No
 
 @needs_browser
 def test_the_recovery_is_recorded_only_after_the_sign_in_worked(
-    fresh_portal: str, tmp_path: Path
+    fresh_portal: str, practice_url: str, tmp_path: Path
 ) -> None:
     """Ordering, because the record has to be true and not merely hopeful.
 
@@ -439,7 +497,7 @@ def test_the_recovery_is_recorded_only_after_the_sign_in_worked(
     handled" with `recovered` set, on a run that failed. `seq` is the join key,
     so asserting on it is asserting the order the record actually shows.
     """
-    driven = drive(fresh_portal, tmp_path, a_competent_agent)
+    driven = drive(fresh_portal, practice_url, tmp_path, a_competent_agent)
 
     recovery = driven.of_kind("recovery")[0]
     sign_ins = [
@@ -454,7 +512,7 @@ def test_the_recovery_is_recorded_only_after_the_sign_in_worked(
 
 @needs_browser
 def test_what_the_run_cost_is_recorded_even_when_the_loop_comes_apart(
-    fresh_portal: str, tmp_path: Path
+    fresh_portal: str, practice_url: str, tmp_path: Path
 ) -> None:
     """Spend is reported when the loop raises, which is when it is most wanted.
 
@@ -464,9 +522,91 @@ def test_what_the_run_cost_is_recorded_even_when_the_loop_comes_apart(
     recorder = Recorder()
 
     with pytest.raises(UnknownTool):
-        drive(fresh_portal, tmp_path, an_agent_that_invents_a_tool, recorder)
+        drive(fresh_portal, practice_url, tmp_path, an_agent_that_invents_a_tool, recorder)
 
     ended = [e for e in recorder.events if e.kind == "phase_end"]
     assert ended, "the run raised and took the accounting with it"
     assert ended[-1].detail["model_calls"] == 1
     assert ended[-1].detail["input_tokens"] > 0
+
+
+# --- the other system, and the conclusion drawn from it --------------------
+
+
+@needs_browser
+def test_the_agent_reads_the_authorization_and_writes_what_it_concluded(
+    fresh_portal: str, practice_url: str, tmp_path: Path
+) -> None:
+    """The whole point of this leg, end to end through the loop.
+
+    The policy is not told whether the Authorization covers the claim. It is
+    handed the typed fields the tool read off the chart, compares the validity
+    range against the date of service and the code against the scope, and writes
+    what it found. If the loop stopped passing those fields through — as it did,
+    by filtering them out of the tool result — this fails.
+    """
+    driven = drive(fresh_portal, practice_url, tmp_path, a_competent_agent)
+
+    assert driven.run.ok, driven.run
+    assert driven.run.noted, "the agent never wrote its finding to the chart"
+
+    note = next(s for s in driven.run.steps if s.tool == "write_note")
+    assert note.ok
+
+    read = next(s for s in driven.run.steps if s.tool == "read_auth_record")
+    assert read.detail["authorization_number"] == "CHP-2026-0044719"
+    assert read.detail["valid_from"] == "2026-02-01"
+    assert read.detail["date_of_service"] == "2026-03-14"
+
+
+@needs_browser
+def test_the_conclusion_the_agent_reaches_is_the_right_one(
+    fresh_portal: str, practice_url: str, tmp_path: Path
+) -> None:
+    """Correct, not merely present. 14 March is inside 1 Feb to 31 May.
+
+    Asserting only that *a* note was written would pass for an agent that
+    concluded the opposite, which is the answer the payer would like.
+    """
+    driven = drive(fresh_portal, practice_url, tmp_path, a_competent_agent)
+
+    written = _conclusion(
+        [{"outcome": "ok", **s.detail} for s in driven.run.steps if s.tool == "read_auth_record"]
+    )
+
+    assert "refutable" in written, written
+    assert "does not answer" not in written
+
+
+@needs_browser
+def test_the_two_systems_are_told_apart_in_the_record(
+    fresh_portal: str, practice_url: str, tmp_path: Path
+) -> None:
+    """Events carry the phase of the system they happened in.
+
+    They all said `portal` once, which would have left the run's EMR column
+    empty while the scripted demo filled it — a record disagreeing with itself
+    about which system did what.
+    """
+    driven = drive(fresh_portal, practice_url, tmp_path, a_competent_agent)
+
+    phases = {e.tool: e.phase for e in driven.recorder.events if e.kind == "tool_result" and e.tool}
+
+    assert phases["download_eob"] == "portal"
+    assert phases["read_auth_record"] == "emr"
+    assert phases["write_note"] == "emr"
+
+
+@needs_browser
+def test_a_run_that_never_wrote_the_note_is_not_reported_as_done(
+    fresh_portal: str, practice_url: str, tmp_path: Path
+) -> None:
+    """The job is the EOB *and* the finding. Half of it is not success.
+
+    `ok` meant "a document arrived", so an agent that fetched the EOB and stopped
+    exited zero with the question it was sent to answer still open.
+    """
+    driven = drive(fresh_portal, practice_url, tmp_path, an_agent_that_gives_up)
+
+    assert not driven.run.ok
+    assert not driven.run.noted

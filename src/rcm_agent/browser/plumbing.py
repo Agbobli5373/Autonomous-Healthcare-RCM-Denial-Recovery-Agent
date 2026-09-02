@@ -19,7 +19,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from rcm_agent.browser.perception import capture_decision
 from rcm_agent.browser.retry import MechanicalFailure
-from rcm_agent.events import EventStream
+from rcm_agent.events import EventStream, Phase
 
 if TYPE_CHECKING:  # pragma: no cover
     from patchright.async_api import Page
@@ -52,7 +52,9 @@ class ToolOutcome:
         return self.outcome == "ok"
 
 
-def starting(stream: EventStream, tool: str, claim_id: str | None = None) -> None:
+def starting(
+    stream: EventStream, tool: str, claim_id: str | None = None, phase: Phase = "portal"
+) -> None:
     """Say a tool began, before it can succeed or fail.
 
     All four announce themselves, so a reader of the record can tell a tool that
@@ -60,7 +62,7 @@ def starting(stream: EventStream, tool: str, claim_id: str | None = None) -> Non
     nothing has been decided yet, and the picture worth keeping is the one at the
     end.
     """
-    stream.emit(phase="portal", kind="tool_call", tool=tool, claim_id=claim_id)
+    stream.emit(phase=phase, kind="tool_call", tool=tool, claim_id=claim_id)
 
 
 async def gave_up(
@@ -70,6 +72,7 @@ async def gave_up(
     exhausted: Exception,
     screenshots: Path | None,
     claim_id: str | None = None,
+    phase: Phase = "portal",
 ) -> ToolOutcome:
     """Every tool answers an exhausted retry the same way, so it is written once."""
     return await finish(
@@ -80,6 +83,7 @@ async def gave_up(
         {"error": str(exhausted)[:300]},
         screenshots=screenshots,
         claim_id=claim_id,
+        phase=phase,
     )
 
 
@@ -94,11 +98,6 @@ def page_url(base_url: str, path: str) -> str:
     """
     parts = urlsplit(base_url)
     return urlunsplit(parts._replace(path=path))
-
-
-def expired(page: Page) -> bool:
-    """The portal answers an expired session with a redirect to its login page."""
-    return "/login" in page.url
 
 
 async def retryable[T](action: Awaitable[T], what: str) -> T:
@@ -128,6 +127,7 @@ async def finish(
     *,
     screenshots: Path | None = None,
     claim_id: str | None = None,
+    phase: Phase = "portal",
 ) -> ToolOutcome:
     """Record the decision, keep the picture, and hand back the result.
 
@@ -138,6 +138,7 @@ async def finish(
     await capture_decision(
         page,
         stream,
+        phase=phase,
         kind="tool_result",
         tool=tool,
         claim_id=claim_id,

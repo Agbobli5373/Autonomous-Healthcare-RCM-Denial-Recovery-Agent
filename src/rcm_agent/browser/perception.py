@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from rcm_agent.events import Event, EventStream, Kind, Outcome
+from rcm_agent.events import Event, EventStream, Kind, Outcome, Phase
 
 if TYPE_CHECKING:  # pragma: no cover - patchright is heavy and only needed live
     from pathlib import Path
@@ -44,6 +44,7 @@ async def capture_decision(
     page: Page,
     stream: EventStream,
     *,
+    phase: Phase,
     kind: Kind,
     tool: str,
     claim_id: str | None = None,
@@ -80,7 +81,7 @@ async def capture_decision(
             name = None
 
     return stream.emit(
-        phase="portal",
+        phase=phase,
         kind=kind,
         tool=tool,
         claim_id=claim_id,

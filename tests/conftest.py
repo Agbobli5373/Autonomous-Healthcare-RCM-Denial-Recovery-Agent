@@ -15,6 +15,7 @@ import socket
 import threading
 from collections.abc import Iterator
 from contextlib import closing
+from typing import Any
 
 import pytest
 import uvicorn
@@ -52,11 +53,14 @@ needs_browser = pytest.mark.skipif(
 )
 
 
-def _serve(latency: float) -> Iterator[str]:
+def _serve(app: Any) -> Iterator[str]:
+    """One server on a free port, for whichever app is handed to it.
+
+    Parameterised rather than copied: there were two of these, identical down to
+    the 200-times-50ms startup poll, differing only in which factory they called.
+    """
     port = free_port()
-    server = uvicorn.Server(
-        uvicorn.Config(create_app(latency=latency), host="127.0.0.1", port=port, log_level="error")
-    )
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     for _ in range(200):
@@ -75,7 +79,7 @@ def portal_url() -> Iterator[str]:
     Shared across a module, which is fine for tests that do not depend on the
     session expiry. Anything that does needs `fresh_portal` instead.
     """
-    yield from _serve(1.2)
+    yield from _serve(create_app(latency=1.2))
 
 
 @pytest.fixture
@@ -92,23 +96,7 @@ def fresh_portal() -> Iterator[str]:
     waiting on the XHR condition rather than sleeping is covered where it belongs,
     in the tool tests.
     """
-    yield from _serve(0.0)
-
-
-def _serve_practice() -> Iterator[str]:
-    port = free_port()
-    server = uvicorn.Server(
-        uvicorn.Config(create_practice_app(), host="127.0.0.1", port=port, log_level="error")
-    )
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    for _ in range(200):
-        if server.started:
-            break
-        threading.Event().wait(0.05)
-    yield f"http://127.0.0.1:{port}"
-    server.should_exit = True
-    thread.join(timeout=10)
+    yield from _serve(create_app(latency=0.0))
 
 
 @pytest.fixture
@@ -120,4 +108,4 @@ def practice_url() -> Iterator[str]:
     write-back test that passes because of an earlier test's write is testing
     nothing.
     """
-    yield from _serve_practice()
+    yield from _serve(create_practice_app())
