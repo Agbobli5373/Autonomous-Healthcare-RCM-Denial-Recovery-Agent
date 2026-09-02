@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from rcm_agent.console.replay import replay
+from rcm_agent.matrix import PHASES
 
 DOS = "2026-03-14T00:00:00+00:00"
 
@@ -219,10 +220,14 @@ def test_the_socket_replays_the_whole_queue_then_says_so(tmp_path: Path) -> None
     )
 
     with TestClient(create_app(tmp_path)).websocket_connect("/events") as socket:
+        hello = socket.receive_json()
         first = socket.receive_json()
         second = socket.receive_json()
         marker = socket.receive_json()
 
+    assert hello == {"type": "hello", "phases": list(PHASES)}, (
+        "the phase names come from the server, so they live in one place"
+    )
     assert first["type"] == "event"
     assert first["claim_id"] == "CLM-2026-0001"
     assert first["derived"]["action"] == "appeal"
@@ -240,4 +245,83 @@ def test_the_socket_is_reachable_alongside_the_page(tmp_path: Path) -> None:
 
     assert client.get("/").status_code == 200
     with client.websocket_connect("/events") as socket:
+        assert socket.receive_json()["type"] == "hello"
         assert socket.receive_json() == {"type": "replayed"}
+
+
+def test_whether_a_rule_closed_the_claim_is_decided_here(tmp_path: Path) -> None:
+    """The browser is told, not left to work it out.
+
+    Which section a claim belongs in is the judgement this project turns on, and
+    the domain already answers it. A client testing the rule label for emptiness
+    would be a second, untyped copy of `Determination.was_guardrailed`.
+    """
+    write_run(
+        tmp_path,
+        "2026-01-01T00-00-00Z",
+        [
+            determination("CLM-1", "appeal"),
+            determination("CLM-2", "close", guardrail="unappealable-remark:MA130"),
+        ],
+    )
+
+    by_claim = {
+        event["claim_id"]: event["derived"]
+        for event in replay(tmp_path)
+        if event["kind"] == "determination"
+    }
+
+    assert by_claim["CLM-1"]["guardrailed"] is False
+    assert by_claim["CLM-1"]["guardrail"] is None
+    assert by_claim["CLM-2"]["guardrailed"] is True
+    assert by_claim["CLM-2"]["guardrail"] == "unappealable-remark:MA130"
+
+
+def test_the_priority_travels_with_the_determination(tmp_path: Path) -> None:
+    write_run(tmp_path, "2026-01-01T00-00-00Z", [determination("CLM-1", "appeal")])
+
+    derived = list(replay(tmp_path))[-1]["derived"]
+
+    assert derived["priority"]["expected_recovery"] == "562.50"
+
+
+def test_a_guardrailed_claim_carries_no_priority(tmp_path: Path) -> None:
+    """`None`, not zero. Nothing was weighed, so there is no score missing."""
+    write_run(
+        tmp_path,
+        "2026-01-01T00-00-00Z",
+        [determination("CLM-2", "close", guardrail="unappealable-remark:MA130")],
+    )
+
+    assert list(replay(tmp_path))[-1]["derived"]["priority"] is None
+
+
+def test_a_line_this_build_cannot_read_costs_one_row_not_the_stream(tmp_path: Path) -> None:
+    """A run directory outlives the code that wrote it.
+
+    An older run can carry a field this build has never heard of. Losing that row
+    is a real cost; taking down the socket mid-replay, so the console reports
+    itself disconnected, is a worse answer to an event it does not understand.
+    """
+    run = write_run(tmp_path, "2026-01-01T00-00-00Z", [determination("CLM-1", "appeal")])
+    log = run / "events.ndjson"
+    log.write_text(
+        log.read_text(encoding="utf-8")
+        + json.dumps(
+            {
+                "seq": 9,
+                "ts": DOS,
+                "phase": "analysis",
+                "kind": "determination",
+                "claim_id": "CLM-9",
+                "detail": {},
+                "invented_later": True,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    streamed = list(replay(tmp_path))
+
+    assert [event["claim_id"] for event in streamed] == ["CLM-1"]

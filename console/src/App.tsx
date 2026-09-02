@@ -6,7 +6,6 @@
  */
 
 import { Queue } from "./Queue";
-import { PHASES } from "./claims";
 import { useQueue } from "./useQueue";
 
 const CONNECTION_TEXT = {
@@ -17,7 +16,7 @@ const CONNECTION_TEXT = {
 } as const;
 
 export function App() {
-  const { claims, connection } = useQueue();
+  const { claims, phases, connection } = useQueue();
 
   return (
     <div className="shell">
@@ -33,7 +32,7 @@ export function App() {
       </header>
 
       <nav className="rail" aria-label="Run phases">
-        {PHASES.map((phase) => (
+        {phases.map((phase) => (
           <span className="step" key={phase}>
             <span className="pip" />
             <span className="lbl">{phase}</span>
@@ -52,7 +51,7 @@ export function App() {
         </main>
       ) : (
         <main>
-          <Queue claims={claims} />
+          <Queue claims={claims} phases={phases} />
         </main>
       )}
     </div>

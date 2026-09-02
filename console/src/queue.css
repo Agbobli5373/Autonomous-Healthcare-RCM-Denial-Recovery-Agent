@@ -157,8 +157,8 @@
 }
 
 .c-failed {
-  background: var(--rebill);
-  border-color: var(--rebill);
+  background: var(--failed);
+  border-color: var(--failed);
 }
 
 /* Struck through, not dimmed. A fainter "pending" would say this work is
@@ -183,6 +183,6 @@
 }
 
 .runchip.bad {
-  color: var(--rebill);
-  border-color: var(--rebill);
+  color: var(--failed);
+  border-color: var(--failed);
 }

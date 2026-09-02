@@ -41,6 +41,11 @@
   --close: #5b6673;
   --close-bg: #edeff2;
 
+  /* Semantic, and deliberately not one of the Action hues: something that
+     failed is not a rebill, and borrowing that colour would teach the eye a
+     meaning the palette then contradicts. */
+  --failed: #9b2c2c;
+
   /* Scrollbars, form controls and the canvas painted before the first frame
      belong to the browser, not to this stylesheet. Without this they stay
      light while everything around them goes dark. */
@@ -80,6 +85,7 @@
     --rebill-bg: #2a2114;
     --close: #8892a0;
     --close-bg: #1c222b;
+    --failed: #d98a8a;
     --wash: rgba(138, 176, 232, 0.05);
   }
 }
@@ -104,6 +110,7 @@
   --rebill-bg: #2a2114;
   --close: #8892a0;
   --close-bg: #1c222b;
+  --failed: #d98a8a;
   --wash: rgba(138, 176, 232, 0.05);
 }
 

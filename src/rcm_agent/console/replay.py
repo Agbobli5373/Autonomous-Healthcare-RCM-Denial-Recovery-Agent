@@ -46,30 +46,72 @@ def replay(runs_dir: Path) -> Iterator[dict[str, Any]]:
 
 
 def _replay_one(run_id: str, log: Path) -> Iterator[dict[str, Any]]:
-    recorded = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line]
+    # The whole log is held before any of it is sent, because `ClaimMatrix` is a
+    # grid and wants its rows before it can be filled - the claim ids have to be
+    # known up front. A run's log is a few kilobytes, so the memory is nothing,
+    # but the shape is worth naming: this cannot stream a log as it is written,
+    # and a tail that follows a live run will need the matrix to accept a claim
+    # it has not seen before rather than being handed them all in advance.
+    recorded = [_parsed(line) for line in log.read_text(encoding="utf-8").splitlines() if line]
+    usable = [raw for raw in recorded if raw is not None]
 
-    # The matrix is a grid, so it needs its rows before it can be filled. Read
-    # once for the claim ids, in the order they first appear, then again for
-    # real - a run's log is a few kilobytes and this keeps the alternative
-    # (mutating the grid as unknown claims arrive) out of the matrix.
-    matrix = ClaimMatrix(list(dict.fromkeys(r["claim_id"] for r in recorded if r["claim_id"])))
+    matrix = ClaimMatrix(list(dict.fromkeys(r["claim_id"] for r in usable if r["claim_id"])))
+    guardrails: dict[str, str | None] = {}
 
-    for raw in recorded:
+    for raw in usable:
         event = Event(**raw)
         matrix.handle(event)
-        yield {"run_id": run_id, **raw, "derived": _derived(matrix, event)}
+        if event.kind == "determination" and event.claim_id:
+            guardrails[event.claim_id] = event.detail.get("guardrail")
+        yield {"run_id": run_id, **raw, "derived": _derived(matrix, event, guardrails)}
 
 
-def _derived(matrix: ClaimMatrix, event: Event) -> dict[str, Any]:
+def _parsed(line: str) -> dict[str, Any] | None:
+    """One recorded line, or nothing if this build cannot read it.
+
+    A run directory is an audit trail that outlives the code that wrote it, and
+    an older one can carry a field this build has never heard of. Skipping the
+    line loses one row of history; letting it raise takes down the socket
+    mid-stream and the console reports itself disconnected, which is a worse
+    answer to "there is an event here I do not understand".
+    """
+    try:
+        raw: dict[str, Any] = json.loads(line)
+        Event(**raw)
+    except (ValueError, TypeError):
+        return None
+    return raw
+
+
+def _derived(
+    matrix: ClaimMatrix, event: Event, guardrails: dict[str, str | None]
+) -> dict[str, Any]:
     """What this event did to the claim it belongs to.
+
+    `guardrailed` is here rather than left to the browser on purpose. Whether a
+    claim was closed by a rule is the judgement this whole project turns on, and
+    it has an answer in the domain already - `Determination.was_guardrailed`. A
+    client testing the rule label for emptiness would be a second, untyped copy
+    of that, deciding which section a claim belongs in.
 
     `None` for a run-level event - provisioning a sandbox belongs to the run, not
     to any one claim, and inventing a claim for it would put a row in the queue
     that answers to nobody.
     """
     if event.claim_id is None:
-        return {"cells": None, "action": None}
+        return {"cells": None, "action": None, "guardrail": None, "guardrailed": False}
+
+    guardrail = guardrails.get(event.claim_id)
+    priority = None
+    if event.kind == "determination":
+        priority = event.detail.get("priority")
+
     return {
         "cells": {phase: matrix.cell(event.claim_id, phase) for phase in PHASES},
         "action": matrix.action_for(event.claim_id),
+        "guardrail": guardrail,
+        # The same test `Determination.was_guardrailed` makes, made here so the
+        # browser is told the answer instead of working it out.
+        "guardrailed": guardrail is not None,
+        "priority": priority,
     }

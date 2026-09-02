@@ -29,6 +29,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from rcm_agent.console.replay import replay
+from rcm_agent.matrix import PHASES
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 """Where `console/` builds to. Committed, and served as-is."""
@@ -65,6 +66,10 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
         change to what happens after this loop, not a change to the protocol.
         """
         await socket.accept()
+        # The phase names come from the server so they live in one place. They
+        # are a constant of the domain rather than per-run data, so they are sent
+        # once here instead of riding on every event.
+        await socket.send_json({"type": "hello", "phases": list(PHASES)})
         for enriched in replay(root):
             await socket.send_json({"type": "event", **enriched})
         await socket.send_json({"type": "replayed"})

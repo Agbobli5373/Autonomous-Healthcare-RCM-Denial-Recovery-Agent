@@ -1,5 +1,19 @@
-import { PHASES, partition, type Claim, type Phase } from "./claims";
+/**
+ * The queue as a table: what is worth working, and what a rule already settled.
+ *
+ * Two sections rather than one list with a sort. The difference between "low
+ * value" and "not work" is the most important thing this console says, and a
+ * single ranked list cannot say it.
+ */
 
+import { partition, type CellState, type Claim, type Phase } from "./claims";
+
+/**
+ * Two characters per Action, so the column never becomes the widest thing in a
+ * row. Keyed on the glossary's five; an Action added there without being added
+ * here renders its own name rather than a shrug, which is wrong on screen but
+ * legible - and findable.
+ */
 const ABBREVIATION: Record<string, string> = {
   appeal: "AP",
   corrected_claim: "CC",
@@ -12,7 +26,7 @@ function Action({ action }: { action: string | null }) {
   if (!action) {
     return <span className="pill p-pending">··</span>;
   }
-  return <span className={`pill p-${action}`}>{ABBREVIATION[action] ?? "??"}</span>;
+  return <span className={`pill p-${action}`}>{ABBREVIATION[action] ?? action}</span>;
 }
 
 /**
@@ -22,19 +36,18 @@ function Action({ action }: { action: string | null }) {
  * has no EMR visit and no appeal package in its future, and a dimmer version of
  * "pending" would say the work is merely unimportant.
  */
-function Phases({ cells }: { cells: Record<Phase, CellStateName> | null }) {
+function Phases({ cells, phases }: { cells: Record<Phase, CellState> | null; phases: Phase[] }) {
   return (
     <span className="cells">
-      {PHASES.map((phase) => (
+      {phases.map((phase) => (
         <span key={phase} className={`cell c-${cells?.[phase] ?? "pending"}`} title={phase} />
       ))}
     </span>
   );
 }
 
-type CellStateName = "pending" | "running" | "done" | "na" | "failed";
 
-function Row({ claim, ranked }: { claim: Claim; ranked: boolean }) {
+function Row({ claim, ranked, phases }: { claim: Claim; ranked: boolean; phases: Phase[] }) {
   return (
     <div className={ranked ? "qrow" : "qrow norank"}>
       <span className="qmain">
@@ -46,7 +59,7 @@ function Row({ claim, ranked }: { claim: Claim; ranked: boolean }) {
           {claim.guardrail ? claim.guardrail : claim.runId}
         </span>
       </span>
-      <Phases cells={claim.cells} />
+      <Phases cells={claim.cells} phases={phases} />
       {ranked && (
         <span className="amt">
           {claim.priority ? claim.priority.expected_recovery : "—"}
@@ -57,7 +70,7 @@ function Row({ claim, ranked }: { claim: Claim; ranked: boolean }) {
   );
 }
 
-export function Queue({ claims }: { claims: Claim[] }) {
+export function Queue({ claims, phases }: { claims: Claim[]; phases: Phase[] }) {
   const { ranked, ruled } = partition(claims);
 
   return (
@@ -72,7 +85,7 @@ export function Queue({ claims }: { claims: Claim[] }) {
         <span className="right">Recovery</span>
       </div>
       {ranked.map((claim) => (
-        <Row key={claim.claimId} claim={claim} ranked />
+        <Row key={claim.claimId} claim={claim} ranked phases={phases} />
       ))}
 
       {/* Always visible, even when empty: the point is that the agent refused to
@@ -86,7 +99,7 @@ export function Queue({ claims }: { claims: Claim[] }) {
         <span>Phases</span>
       </div>
       {ruled.map((claim) => (
-        <Row key={claim.claimId} claim={claim} ranked={false} />
+        <Row key={claim.claimId} claim={claim} ranked={false} phases={phases} />
       ))}
       <p className="rulenote">
         A rule decided these. No judgement was exercised and nothing was weighed,
