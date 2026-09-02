@@ -28,7 +28,7 @@ from __future__ import annotations
 from datetime import date
 from html import escape
 
-from rcm_agent.practice_io import PracticeRecord
+from rcm_agent.practice_io import PracticeRecord, render_chart_date
 
 PRODUCT = "NORTHWIND PRACTICE MANAGER"
 """Invented, and audibly so.
@@ -78,8 +78,12 @@ def _dmy(value: date) -> str:
 
     It was written out four times, and the two the agent has to compare - the
     date of service and the ends of the validity range - are among them.
+
+    Delegated to `practice_io` because the agent has to read these back, and a
+    renderer and a parser that disagree about month names would fail only on a
+    machine with a different locale.
     """
-    return value.strftime("%d-%b-%Y").upper()
+    return render_chart_date(value)
 
 
 def _shell(title: str, body: str) -> str:

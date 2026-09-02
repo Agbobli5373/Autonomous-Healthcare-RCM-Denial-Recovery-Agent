@@ -15,16 +15,16 @@ at all; the cloud path is exercised separately and costs a minute a run.
 from __future__ import annotations
 
 import asyncio
-import importlib.util
-import socket
-import threading
-from collections.abc import Iterator
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
 import pytest
-import uvicorn
+from tests.conftest import (
+    HERO_CLAIM,
+    PORTAL_PASSWORD,
+    PORTAL_USER,
+    needs_browser,
+)
 
 from rcm_agent.browser.retry import RetryPolicy
 from rcm_agent.browser.tools import (
@@ -35,46 +35,8 @@ from rcm_agent.browser.tools import (
     search_claims,
 )
 from rcm_agent.events import Event, EventStream
-from rcm_agent.mocks.portal import create_app
-
-HERO_CLAIM = "CLM-2026-0001"
-"""The CO-197 prior-authorization claim. Oldest of three, so it is on page two."""
-
-PORTAL_USER = "provider"
-PORTAL_PASSWORD = "demo"
-"""The mock accepts anything. Spelled out rather than splatted from a dict so the
-type checker can see that each tool is being called with what it declares."""
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
-
-
-def free_port() -> int:
-    with closing(socket.socket()) as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
-@pytest.fixture(scope="module")
-def portal_url() -> Iterator[str]:
-    """A real server, with the mock's real 1.2s worklist latency.
-
-    The latency is not turned down. It is the thing that makes waiting on a
-    condition rather than sleeping actually matter, and a test that removes it
-    would pass against a `sleep(0.1)` implementation.
-    """
-    port = free_port()
-    server = uvicorn.Server(
-        uvicorn.Config(create_app(), host="127.0.0.1", port=port, log_level="error")
-    )
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    for _ in range(200):
-        if server.started:
-            break
-        threading.Event().wait(0.05)
-    yield f"http://127.0.0.1:{port}"
-    server.should_exit = True
-    thread.join(timeout=10)
 
 
 class Recorder:
@@ -83,21 +45,6 @@ class Recorder:
 
     def handle(self, event: Event) -> None:
         self.events.append(event)
-
-
-def chromium_is_available() -> bool:
-    """Skip rather than fail where the browser was never installed.
-
-    The suite has to stay runnable on a machine that has not downloaded a
-    hundred megabytes of Chromium, the same way the OCR test skips without
-    tesseract.
-    """
-    return importlib.util.find_spec("patchright") is not None
-
-
-needs_browser = pytest.mark.skipif(
-    not chromium_is_available(), reason="patchright/chromium is not installed here"
-)
 
 
 class Driven:
@@ -255,7 +202,7 @@ def test_a_claim_that_is_not_in_the_queue_is_a_result_not_a_failure(
 
 @needs_browser
 def test_the_deliberate_expiry_comes_back_as_session_expired(
-    portal_url: str, tmp_path: Path
+    fresh_portal: str, tmp_path: Path
 ) -> None:
     """The portal signs the agent out on its first claim detail. That is the demo.
 
@@ -267,7 +214,7 @@ def test_the_deliberate_expiry_comes_back_as_session_expired(
     async def body(run: Driven) -> None:
         await log_in(
             run.page,
-            base_url=portal_url,
+            base_url=fresh_portal,
             user=PORTAL_USER,
             password=PORTAL_PASSWORD,
             stream=run.stream,
@@ -280,7 +227,7 @@ def test_the_deliberate_expiry_comes_back_as_session_expired(
         assert outcome.outcome == "session_expired"
         assert run.retries() == [], "an expiry is semantic; it must not be retried"
 
-    drive(portal_url, tmp_path, body)
+    drive(fresh_portal, tmp_path, body)
 
 
 @needs_browser

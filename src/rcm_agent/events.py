@@ -51,7 +51,16 @@ That is handled behaviour, and the schema says so rather than leaving every
 consumer to infer it from an error with a special message.
 """
 
-Outcome = Literal["ok", "recovered", "failed"]
+Outcome = Literal["ok", "handled", "recovered", "failed"]
+"""`handled` is the one that needs explaining.
+
+A tool that reports `session_expired`, `not_found` or `refused` has not failed —
+it read the portal correctly and is telling the caller something true, which the
+caller can act on. Recording those as `failed` painted the demo's deliberate
+stumble bold red one line above the recovery that answered it, which is exactly
+the impression this schema exists to prevent. `failed` is kept for a tool that
+could not do its job at all.
+"""
 
 Clock = Callable[[], datetime]
 

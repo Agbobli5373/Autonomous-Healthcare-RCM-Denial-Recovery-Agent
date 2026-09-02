@@ -84,3 +84,48 @@ def record_from_dict(data: Any) -> PracticeRecord:
 
 def load_practice_record(path: Path) -> PracticeRecord:
     return record_from_dict(read_json(path))
+
+
+CHART_MONTHS: tuple[str, ...] = (
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DEC",
+)
+"""The month names the chart prints, written out rather than left to `strftime`.
+
+`%b` is locale-dependent on both sides. On a machine running a non-English
+locale the mock would render `01-févr.-2026` and the tool that reads it back
+would be looking for `FEB` — a failure that appears only on someone else's
+laptop, which is the worst kind. This module is uploaded to the sandbox, so both
+the rendering and the parsing can share one definition.
+"""
+
+
+def render_chart_date(value: date) -> str:
+    """A date as the practice-management system prints it: `14-MAR-2026`."""
+    return f"{value.day:02d}-{CHART_MONTHS[value.month - 1]}-{value.year}"
+
+
+def parse_chart_date(text: str) -> date:
+    """Read a date back off the chart. The inverse of `render_chart_date`.
+
+    Strict: a date the agent is going to compare against a claim's date of
+    service is not somewhere to guess. A shape this does not recognise raises
+    rather than returning something plausible.
+    """
+    parts = text.strip().upper().split("-")
+    if len(parts) != 3 or parts[1] not in CHART_MONTHS:
+        raise RecordFileError(f"{text!r} is not a chart date like 14-MAR-2026")
+    try:
+        return date(int(parts[2]), CHART_MONTHS.index(parts[1]) + 1, int(parts[0]))
+    except ValueError as exc:
+        raise RecordFileError(f"{text!r} is not a chart date like 14-MAR-2026") from exc

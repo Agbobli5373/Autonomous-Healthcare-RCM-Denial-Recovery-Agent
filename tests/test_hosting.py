@@ -27,6 +27,7 @@ import pytest
 
 from rcm_agent.hosting import (
     MOCK_SERVERS,
+    ORCHESTRATOR_ONLY,
     WEB_PIP_PACKAGES,
     MockServer,
     install_script,
@@ -74,13 +75,18 @@ def test_the_archive_is_built_by_walking_rather_than_by_listing(archive: bytes) 
     #28 hand-listed what to upload; when a module moved, the guest lost it and
     only one of two paths broke.
     """
+    package = REPO_ROOT / "src" / "rcm_agent"
     on_disk = {
         str(path.relative_to(REPO_ROOT).as_posix())
-        for path in (REPO_ROOT / "src" / "rcm_agent").rglob("*.py")
+        for path in package.rglob("*.py")
         if "__pycache__" not in path.parts
+        # The one deliberate exclusion, tested for on its own just below. Written
+        # as a subtraction so a new module anywhere else still has to travel.
+        and path.relative_to(package).parts[0] not in ORCHESTRATOR_ONLY
     }
 
     assert on_disk <= names_in(archive)
+    assert len(on_disk) > 20, "the exclusion swallowed most of the package"
 
 
 def test_no_compiled_bytecode_travels(archive: bytes) -> None:
@@ -240,3 +246,42 @@ def _assert_the_pages_are_the_mocks() -> None:
 
     practice = urllib.request.urlopen("http://127.0.0.1:8081/signin.do", timeout=10).read().decode()
     assert "NORTHWIND PRACTICE MANAGER" in practice
+
+
+# --- what the guest is never given -----------------------------------------
+
+
+def test_no_credential_travels_to_the_guest(archive: bytes) -> None:
+    """Neither key reaches the sandbox, and the archive is where that is decided.
+
+    The Solari key would let the guest create more sandboxes; the Anthropic key
+    would put a model credential on a host that is reachable from the public
+    internet through a preview URL for as long as the demo runs. Both stay in the
+    orchestrator, and `.env` is not among the two prefixes that travel.
+    """
+    import io as _io
+    import tarfile as _tarfile
+
+    with _tarfile.open(fileobj=_io.BytesIO(archive), mode="r:gz") as tar:
+        names = tar.getnames()
+        blob = b"".join(
+            (tar.extractfile(name) or _io.BytesIO()).read()
+            for name in names
+            if name.endswith(".py")
+        )
+
+    assert not [name for name in names if ".env" in name]
+    # The env var *names* are ordinary source; it is the values that must never
+    # travel, and the only place they live is a gitignored file that does not.
+    for secret in ("sk-ant-", "slr_live"):
+        assert secret.encode() not in blob
+
+
+def test_the_guest_is_never_sent_the_code_that_talks_to_a_model(archive: bytes) -> None:
+    """The agent loop runs orchestrator-side, so it has no business in the guest.
+
+    Shipping it would not leak the key by itself, but it is the kind of drift
+    that ends with someone wondering why the sandbox needs an Anthropic client.
+    """
+    for package in ORCHESTRATOR_ONLY:
+        assert not [n for n in names_in(archive) if f"/{package}/" in n], package

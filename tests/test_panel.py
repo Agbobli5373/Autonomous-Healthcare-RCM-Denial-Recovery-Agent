@@ -117,3 +117,36 @@ def test_a_non_terminal_console_gets_the_plain_panel() -> None:
     panel = make_panel(ClaimMatrix(CLAIMS), console_with_encoding("utf-8"))
 
     assert isinstance(panel, PlainPanel)
+
+
+def test_a_retry_reads_differently_from_a_recovery() -> None:
+    """One is a click that missed; the other is the agent changing its plan.
+
+    They were the same event once and the panel had no branch for a retry at
+    all, so a mechanical stumble and the demo's centrepiece rendered alike.
+    """
+    retry = describe(
+        an_event(kind="retry", tool="open_claim", detail={"attempt": 2, "of": 3}),
+        UNICODE_GLYPHS,
+    ).plain
+    recovery = describe(
+        an_event(kind="recovery", detail={"reason": "session expired"}), UNICODE_GLYPHS
+    ).plain
+
+    assert "retrying (2 of 3)" in retry
+    assert "handled" not in retry, "a retry is not the handled moment"
+    assert retry != recovery
+
+
+def test_a_semantic_outcome_is_not_painted_as_a_failure() -> None:
+    """The deliberate stumble sits one line above the recovery that answers it.
+
+    Rendered bold red, it made a working run look broken — which is the opposite
+    of what showing the stumble is for.
+    """
+    line = describe(
+        an_event(kind="tool_result", tool="open_claim", outcome="handled"), UNICODE_GLYPHS
+    )
+
+    assert "handled" in line.plain
+    assert "bold red" not in str(line.spans)

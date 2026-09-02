@@ -38,7 +38,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, cast
 
-from rcm_agent.events import EventStream
+from rcm_agent.events import EventStream, Phase
 
 Clock = Callable[[], float]
 Sleep = Callable[[float], Awaitable[None]]
@@ -96,6 +96,7 @@ async def with_retries[T](
     *,
     tool: str,
     stream: EventStream,
+    phase: Phase = "portal",
     claim_id: str | None = None,
     policy: RetryPolicy | None = None,
     clock: Clock = time.monotonic,
@@ -143,7 +144,7 @@ async def with_retries[T](
         # Recorded, not returned. `seq` joins this to the tool_call it belongs to
         # and to any screenshot taken around it.
         stream.emit(
-            phase="portal",
+            phase=phase,
             kind="retry",
             tool=tool,
             claim_id=claim_id,

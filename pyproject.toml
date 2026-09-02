@@ -5,6 +5,11 @@ description = "Autonomous agent that recovers denied medical claims by operating
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    # The agent loop runs orchestrator-side and never enters the sandbox, so the
+    # Anthropic key stays on this machine. Not pinned exactly like the Solari
+    # SDKs: this one is 1.x and stable, and its own retry handling is worth
+    # picking up.
+    "anthropic>=1.0",
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
     # reportlab renders the synthetic EOB documents, and later the appeal PDF.
