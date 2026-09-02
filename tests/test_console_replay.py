@@ -325,3 +325,43 @@ def test_a_line_this_build_cannot_read_costs_one_row_not_the_stream(tmp_path: Pa
     streamed = list(replay(tmp_path))
 
     assert [event["claim_id"] for event in streamed] == ["CLM-1"]
+
+
+def test_every_event_after_a_determination_still_describes_it(tmp_path: Path) -> None:
+    """The contract that lets the client take the latest event wholesale.
+
+    If a later event carried less than an earlier one, a client would have to
+    merge them field by field - and merging is what mixed two runs together,
+    rendering one run's Determination against another run's phases.
+    """
+    write_run(
+        tmp_path,
+        "2026-01-01T00-00-00Z",
+        [
+            determination("CLM-1", "appeal"),
+            {"kind": "phase_end", "phase": "analysis", "claim_id": "CLM-1", "outcome": "ok"},
+        ],
+    )
+
+    last = list(replay(tmp_path))[-1]["derived"]
+
+    assert last["action"] == "appeal"
+    assert last["priority"]["expected_recovery"] == "562.50"
+    assert last["guardrailed"] is False
+
+
+def test_a_rule_closed_claim_carries_its_rule_on_every_later_event(tmp_path: Path) -> None:
+    write_run(
+        tmp_path,
+        "2026-01-01T00-00-00Z",
+        [
+            determination("CLM-2", "close", guardrail="unappealable-remark:MA130"),
+            {"kind": "phase_end", "phase": "analysis", "claim_id": "CLM-2", "outcome": "ok"},
+        ],
+    )
+
+    last = list(replay(tmp_path))[-1]["derived"]
+
+    assert last["guardrailed"] is True
+    assert last["guardrail"] == "unappealable-remark:MA130"
+    assert last["priority"] is None

@@ -54,17 +54,18 @@ describe("folding events into a queue", () => {
     expect(claims[0]?.action).toBe("rebill");
   });
 
-  it("keeps what earlier events said when a later one carries nothing new", () => {
-    const later: StreamMessage = {
-      type: "event",
-      run_id: "2026-01-01T00-00-00Z",
+  it("takes the latest event wholesale, because each one is complete", () => {
+    // The server carries a claim's whole state on every event, so a later one
+    // never has less than an earlier one. This is the contract that makes
+    // wholesale replacement safe; `test_console_replay.py` pins the other side.
+    const determined = determination("CLM-1", "appeal");
+    const laterInSameRun = {
+      ...determined,
       seq: 9,
       kind: "phase_end",
-      claim_id: "CLM-1",
-      derived: { cells: null, action: null, guardrail: null, guardrailed: false, priority: null },
     };
 
-    const [claim] = fold([determination("CLM-1", "appeal"), later]);
+    const [claim] = fold([determined, laterInSameRun]);
 
     expect(claim?.action).toBe("appeal");
     expect(claim?.priority).not.toBeNull();
@@ -115,5 +116,38 @@ describe("splitting the queue", () => {
     const { ranked } = partition(fold([midRun, determination("CLM-DONE", "appeal")]));
 
     expect(ranked.map((c) => c.claimId)).toEqual(["CLM-DONE", "CLM-MID"]);
+  });
+});
+
+describe("a claim worked by more than one run", () => {
+  it("leaves the rule section when a later run determined otherwise", () => {
+    // The bug this pins: folding `guardrailed` with `||` made it monotonic, so a
+    // claim a rule closed once could never leave - it sat under "Closed by rule",
+    // labelled with the old rule, showing an appeal and a live Priority.
+    const closed = determination("CLM-1", "close", { guardrail: "unappealable-remark:MA130" });
+    const reworked = { ...determination("CLM-1", "appeal"), run_id: "2026-02-02T00-00-00Z" };
+
+    const { ranked, ruled } = partition(fold([closed, reworked]));
+
+    expect(ruled).toHaveLength(0);
+    expect(ranked.map((c) => c.claimId)).toEqual(["CLM-1"]);
+    expect(ranked[0]?.guardrail).toBeNull();
+  });
+
+  it("never mixes one run's Determination with another run's phases", () => {
+    // Field-by-field merging attributed a Determination to a run that never
+    // made one: the Action and Priority from the older run, the run label and
+    // the phases from the newer.
+    const determined = determination("CLM-1", "rebill");
+    const laterRunTouchesIt = {
+      ...determination("CLM-1", null, { priority: null }),
+      run_id: "2026-02-02T00-00-00Z",
+    };
+
+    const [claim] = fold([determined, laterRunTouchesIt]);
+
+    expect(claim?.runId).toBe("2026-02-02T00-00-00Z");
+    expect(claim?.action).toBeNull();
+    expect(claim?.priority).toBeNull();
   });
 });

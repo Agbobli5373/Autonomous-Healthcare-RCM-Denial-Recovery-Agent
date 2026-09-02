@@ -69,29 +69,32 @@ export interface Claim {
 /**
  * Fold one event into the queue.
  *
- * Events arrive in the order they happened, so later ones overwrite what earlier
- * ones said. A claim worked twice belongs to the run that worked it last, which
- * is the one an analyst would be looking at.
+ * Wholesale replacement, not a merge. Every event carries its claim's whole
+ * state as of that event, so the latest one simply wins - and events arrive in
+ * the order they happened, over a transport that preserves it.
+ *
+ * Merging field by field looked harmless and was not. Keeping an earlier value
+ * when a later event carried none mixed two runs together: a Determination from
+ * one run rendered against the phases and the run label of another, so the
+ * console attributed a decision to a run that never made it. Worse, folding a
+ * boolean with `||` made it monotonic - a claim rule-closed once could never
+ * leave the rule section, however many times it was later worked and appealed.
  */
 export function applyEvent(claims: Map<string, Claim>, message: StreamMessage): Map<string, Claim> {
   if (message.type !== "event" || message.claim_id === null) {
     return claims;
   }
 
-  const claimId = message.claim_id;
-  const previous = claims.get(claimId);
-  const next: Claim = {
-    claimId,
-    runId: message.run_id,
-    action: message.derived.action ?? previous?.action ?? null,
-    guardrail: message.derived.guardrail ?? previous?.guardrail ?? null,
-    guardrailed: message.derived.guardrailed || (previous?.guardrailed ?? false),
-    priority: message.derived.priority ?? previous?.priority ?? null,
-    cells: message.derived.cells ?? previous?.cells ?? null,
-  };
-
   const updated = new Map(claims);
-  updated.set(claimId, next);
+  updated.set(message.claim_id, {
+    claimId: message.claim_id,
+    runId: message.run_id,
+    action: message.derived.action,
+    guardrail: message.derived.guardrail,
+    guardrailed: message.derived.guardrailed,
+    priority: message.derived.priority,
+    cells: message.derived.cells,
+  });
   return updated;
 }
 

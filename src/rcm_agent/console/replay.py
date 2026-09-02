@@ -56,14 +56,22 @@ def _replay_one(run_id: str, log: Path) -> Iterator[dict[str, Any]]:
     usable = [raw for raw in recorded if raw is not None]
 
     matrix = ClaimMatrix(list(dict.fromkeys(r["claim_id"] for r in usable if r["claim_id"])))
-    guardrails: dict[str, str | None] = {}
+    # What each claim's Determination said, once it has one. Carried forward so
+    # that *every* event for a claim describes it completely, and a client can
+    # take the latest one wholesale instead of merging fields across events -
+    # which is how a Determination ends up attributed to a run that never made
+    # one.
+    decided: dict[str, dict[str, Any]] = {}
 
     for raw in usable:
         event = Event(**raw)
         matrix.handle(event)
         if event.kind == "determination" and event.claim_id:
-            guardrails[event.claim_id] = event.detail.get("guardrail")
-        yield {"run_id": run_id, **raw, "derived": _derived(matrix, event, guardrails)}
+            decided[event.claim_id] = {
+                "guardrail": event.detail.get("guardrail"),
+                "priority": event.detail.get("priority"),
+            }
+        yield {"run_id": run_id, **raw, "derived": _derived(matrix, event, decided)}
 
 
 def _parsed(line: str) -> dict[str, Any] | None:
@@ -84,7 +92,7 @@ def _parsed(line: str) -> dict[str, Any] | None:
 
 
 def _derived(
-    matrix: ClaimMatrix, event: Event, guardrails: dict[str, str | None]
+    matrix: ClaimMatrix, event: Event, decided: dict[str, dict[str, Any]]
 ) -> dict[str, Any]:
     """What this event did to the claim it belongs to.
 
@@ -94,17 +102,27 @@ def _derived(
     client testing the rule label for emptiness would be a second, untyped copy
     of that, deciding which section a claim belongs in.
 
+    Every event for a claim carries the claim's whole state as of that event, not
+    only what changed. A client merging fields across events cannot tell which
+    run a value came from, and mixes them: a Determination from one run rendered
+    against the phases and the run label of another.
+
     `None` for a run-level event - provisioning a sandbox belongs to the run, not
     to any one claim, and inventing a claim for it would put a row in the queue
     that answers to nobody.
     """
     if event.claim_id is None:
-        return {"cells": None, "action": None, "guardrail": None, "guardrailed": False}
+        return {
+            "cells": None,
+            "action": None,
+            "guardrail": None,
+            "guardrailed": False,
+            "priority": None,
+        }
 
-    guardrail = guardrails.get(event.claim_id)
-    priority = None
-    if event.kind == "determination":
-        priority = event.detail.get("priority")
+    determination = decided.get(event.claim_id, {})
+    guardrail = determination.get("guardrail")
+    priority = determination.get("priority")
 
     return {
         "cells": {phase: matrix.cell(event.claim_id, phase) for phase in PHASES},
