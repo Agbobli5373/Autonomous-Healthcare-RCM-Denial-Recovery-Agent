@@ -695,3 +695,19 @@ def test_the_system_prompt_is_never_recorded() -> None:
     dumped = json.dumps([event.to_dict() for event in recorder.events])
 
     assert SYSTEM_PROMPT[:60] not in dumped
+
+
+def test_whitespace_is_never_evidence() -> None:
+    """Observed live: a model returned an item that was only padding.
+
+    It split one sentence across two entries - `"    only    "` and then the
+    rest, starting lowercase. The padding is stripped and an item that is
+    nothing but padding is dropped, because it was never an item. What the model
+    actually said is left alone.
+    """
+    determination, _ = run(
+        a_claim(("CO", "197", ("N706",), "1250.00")),
+        ScriptedJudge("appeal", evidence=["    only    ", "   ", "Authorization record"]),
+    )
+
+    assert determination.evidence_required == ("only", "Authorization record")

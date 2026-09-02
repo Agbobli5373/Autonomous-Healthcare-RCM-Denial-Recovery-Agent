@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 
-import { applyEvent, type Claim, type Phase, type StreamMessage } from "./claims";
+import { applyEvent, type QueueEntry, type Phase, type StreamMessage } from "./claims";
 
 export type Connection = "connecting" | "replaying" | "ready" | "lost";
 
 export interface Stream {
-  claims: Claim[];
+  claims: QueueEntry[];
   phases: Phase[];
   connection: Connection;
 }
@@ -18,7 +18,7 @@ export interface Stream {
  * same bundle.
  */
 export function useQueue(): Stream {
-  const [claims, setClaims] = useState<Map<string, Claim>>(new Map());
+  const [entries, setEntries] = useState<Map<string, QueueEntry>>(new Map());
   const [phases, setPhases] = useState<Phase[]>([]);
   const [connection, setConnection] = useState<Connection>("connecting");
 
@@ -37,7 +37,7 @@ export function useQueue(): Stream {
         setConnection("ready");
         return;
       }
-      setClaims((current) => applyEvent(current, message));
+      setEntries((current) => applyEvent(current, message));
     };
     // Told apart from "nothing to show" on purpose: an empty queue that never
     // connected is a broken console, and saying so is better than an honest
@@ -48,5 +48,5 @@ export function useQueue(): Stream {
     return () => socket.close();
   }, []);
 
-  return { claims: [...claims.values()], phases, connection };
+  return { claims: [...entries.values()], phases, connection };
 }

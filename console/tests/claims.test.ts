@@ -6,11 +6,11 @@
  * claim, and that a rule-closed claim leaves the ranked list entirely.
  */
 
-import { applyEvent, partition, type Claim, type StreamMessage } from "../src/claims";
+import { applyEvent, partition, type QueueEntry, type StreamMessage } from "../src/claims";
 import { CELLS, determination } from "./fixtures";
 
-function fold(messages: StreamMessage[]): Claim[] {
-  let claims = new Map<string, Claim>();
+function fold(messages: StreamMessage[]): QueueEntry[] {
+  let claims = new Map<string, QueueEntry>();
   for (const message of messages) {
     claims = applyEvent(claims, message);
   }
@@ -37,7 +37,7 @@ describe("folding events into a queue", () => {
       seq: 0,
       kind: "tool_call",
       claim_id: null,
-      derived: { cells: null, action: null, guardrail: null, guardrailed: false, priority: null },
+      derived: { cells: null, action: null, guardrailed: false, determination: null, claim: null },
     };
 
     expect(fold([runLevel])).toHaveLength(0);
@@ -68,7 +68,7 @@ describe("folding events into a queue", () => {
     const [claim] = fold([determined, laterInSameRun]);
 
     expect(claim?.action).toBe("appeal");
-    expect(claim?.priority).not.toBeNull();
+    expect(claim?.determination?.priority).not.toBeNull();
   });
 });
 
@@ -131,7 +131,7 @@ describe("a claim worked by more than one run", () => {
 
     expect(ruled).toHaveLength(0);
     expect(ranked.map((c) => c.claimId)).toEqual(["CLM-1"]);
-    expect(ranked[0]?.guardrail).toBeNull();
+    expect(ranked[0]?.determination?.guardrail).toBeNull();
   });
 
   it("never mixes one run's Determination with another run's phases", () => {
@@ -148,6 +148,6 @@ describe("a claim worked by more than one run", () => {
 
     expect(claim?.runId).toBe("2026-02-02T00-00-00Z");
     expect(claim?.action).toBeNull();
-    expect(claim?.priority).toBeNull();
+    expect(claim?.determination).toBeNull();
   });
 });

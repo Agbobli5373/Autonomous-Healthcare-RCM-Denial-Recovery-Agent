@@ -126,3 +126,44 @@ def test_load_claim_reads_a_real_file(tmp_path: Path) -> None:
     path.write_text(json.dumps(VALID), encoding="utf-8")
 
     assert load_claim(path).claim_id == "CLM-0001"
+
+
+# --- writing one back out ---------------------------------------------------
+
+
+def test_a_claim_survives_a_round_trip() -> None:
+    """The console shows what the payer refused, so a Claim has to travel.
+
+    Written as a round trip rather than against a literal shape: the reader is
+    strict and already the authority on what a valid Claim looks like, so a
+    writer the reader cannot read is the only interesting way for this to fail.
+    """
+    from rcm_agent.claim_io import claim_to_dict
+
+    original = load_claim(Path("data/fixtures/claims/clm-2026-0001.json"))
+
+    assert claim_from_dict(claim_to_dict(original)) == original
+
+
+def test_the_written_shape_is_the_one_the_fixtures_use() -> None:
+    """A reader elsewhere - a browser - reads these keys, not this module."""
+    from rcm_agent.claim_io import claim_to_dict
+
+    path = Path("data/fixtures/claims/clm-2026-0002.json")
+
+    assert claim_to_dict(load_claim(path)) == json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_amounts_are_written_as_strings_not_floats() -> None:
+    """Money never becomes a float, not even on the way out.
+
+    `78.00` as a JSON number comes back as `78.0`, and a claim detail showing a
+    payer's refusal to the cent is not the place to start rounding.
+    """
+    from rcm_agent.claim_io import claim_to_dict
+
+    written = claim_to_dict(load_claim(Path("data/fixtures/claims/clm-2026-0002.json")))
+    line = written["service_lines"][0]  # pyright: ignore[reportIndexIssue, reportUnknownVariableType]
+
+    assert isinstance(line["charge"], str)  # pyright: ignore[reportIndexIssue, reportUnknownArgumentType]
+    assert isinstance(line["adjustments"][0]["amount"], str)  # pyright: ignore[reportIndexIssue, reportUnknownArgumentType]

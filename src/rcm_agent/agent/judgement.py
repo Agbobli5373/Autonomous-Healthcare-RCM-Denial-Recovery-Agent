@@ -292,7 +292,12 @@ async def judge(
         claim_id=claim.claim_id,
         action=action,  # pyright: ignore[reportArgumentType] - checked above
         rationale=rationale,
-        evidence_required=tuple(str(item) for item in evidence),
+        # Stripped, and empties dropped. Observed live: a model returned
+        # `"    only    "` as one item and continued the sentence in the next -
+        # padding is never evidence, and an item that is only whitespace was
+        # never an item. The fragment itself is left alone: editing what the
+        # model said would make the record a paraphrase.
+        evidence_required=tuple(stripped for item in evidence if (stripped := str(item).strip())),
         # A `close` abandons the claim, so there is nothing left to rank and no
         # recovery to expect. The catalogue's likelihood is the figure for the
         # family's *default* action, so carrying it here would print an expected

@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from rcm_agent.agent.judgement import JudgementRefused, judge
 from rcm_agent.agent.model import HARD_JUDGEMENT, Escalation
+from rcm_agent.claim_io import claim_to_dict
 from rcm_agent.determination import (
     GuardrailTrace,
     from_catalogue,
@@ -82,6 +83,24 @@ async def determine_with_judgement(
 
     _record(stream, determination)
     return determination
+
+
+def record_claim(stream: EventStream, claim: Claim) -> None:
+    """Record what the payer refused, before anything is decided about it.
+
+    A run kept the Determination and not the Claim it answers, so nothing
+    downstream could show the two together - and the one claim whose story
+    matters most, the rule-closed one, has no model call to recover it from.
+
+    Here beside `record_guardrails` and `_record` so the three things a run says
+    about a claim are written in one place and cannot drift apart.
+    """
+    stream.emit(
+        phase="analysis",
+        kind="claim",
+        claim_id=claim.claim_id,
+        detail=claim_to_dict(claim),
+    )
 
 
 def record_guardrails(stream: EventStream, claim_id: str, trace: GuardrailTrace) -> None:

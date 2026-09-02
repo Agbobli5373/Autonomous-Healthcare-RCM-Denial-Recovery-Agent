@@ -1,4 +1,4 @@
-"""Reading Claims from JSON.
+"""Reading Claims from JSON, and writing them back.
 
 Validation is strict and the errors name the field that is wrong. These files are
 fixtures today and extracted output tomorrow, and a claim that is silently wrong
@@ -83,3 +83,40 @@ def claim_from_dict(data: Any) -> Claim:
 
 def load_claim(path: Path) -> Claim:
     return claim_from_dict(read_json(path))
+
+
+def claim_to_dict(claim: Claim) -> dict[str, Any]:
+    """A Claim as JSON, in the shape the reader above accepts.
+
+    The console shows what the payer refused beside what the agent determined,
+    and the refusal has to reach a browser to be shown. This is the only way out
+    of the domain, so the round trip is what the tests pin - a writer the reader
+    cannot read is the interesting failure, not a particular arrangement of keys.
+
+    Money is written as a string. `78.00` sent as a JSON number returns as
+    `78.0`, and a screen showing a payer's refusal to the cent is the last place
+    to start rounding.
+    """
+    return {
+        "claim_id": claim.claim_id,
+        "payer": claim.payer,
+        "patient_id": claim.patient_id,
+        "date_of_service": claim.date_of_service.isoformat(),
+        "service_lines": [
+            {
+                "line_number": line.line_number,
+                "procedure_code": line.procedure_code,
+                "charge": str(line.charge),
+                "adjustments": [
+                    {
+                        "group": adjustment.group,
+                        "reason_code": adjustment.reason_code,
+                        "amount": str(adjustment.amount),
+                        "remark_codes": list(adjustment.remark_codes),
+                    }
+                    for adjustment in line.adjustments
+                ],
+            }
+            for line in claim.service_lines
+        ],
+    }

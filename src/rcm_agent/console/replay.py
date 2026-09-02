@@ -24,8 +24,11 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from rcm_agent.claim_io import claim_from_dict
+from rcm_agent.determination import governing_denial
 from rcm_agent.events import Event
 from rcm_agent.matrix import PHASES, ClaimMatrix
+from rcm_agent.strict_json import RecordFileError
 
 
 def replay(runs_dir: Path) -> Iterator[dict[str, Any]]:
@@ -62,16 +65,66 @@ def _replay_one(run_id: str, log: Path) -> Iterator[dict[str, Any]]:
     # which is how a Determination ends up attributed to a run that never made
     # one.
     decided: dict[str, dict[str, Any]] = {}
+    refused: dict[str, dict[str, Any]] = {}
 
     for raw in usable:
         event = Event(**raw)
         matrix.handle(event)
+        if event.kind == "claim" and event.claim_id:
+            refused[event.claim_id] = _refusal(dict(event.detail))
         if event.kind == "determination" and event.claim_id:
-            decided[event.claim_id] = {
-                "guardrail": event.detail.get("guardrail"),
-                "priority": event.detail.get("priority"),
-            }
-        yield {"run_id": run_id, **raw, "derived": _derived(matrix, event, decided)}
+            decided[event.claim_id] = dict(event.detail)
+        yield {"run_id": run_id, **raw, "derived": _derived(matrix, event, decided, refused)}
+
+
+def _refusal(recorded: dict[str, Any]) -> dict[str, Any]:
+    """What the payer refused, with the denial the Determination answers named.
+
+    `governing_denial` picks the largest *denial* by amount, and a denial is an
+    adjustment that refuses payment - a contractual write-off is not one. Left to
+    a browser this becomes "the biggest number on the claim", which on the
+    rule-closed claim is the `CO-45` write-off: the fact bar would show a
+    contractual adjustment as the code being answered and hide the `MA130` the
+    guardrail actually fired on.
+    """
+    try:
+        claim = claim_from_dict(recorded)
+    except RecordFileError:
+        return {**recorded, "governing": None}
+
+    lines = [
+        {**line, "charge": _charge(line.get("charge"))}
+        for line in recorded.get("service_lines", [])
+    ]
+
+    # Guarded rather than caught. A Claim carrying only write-offs has no denial
+    # to govern - `governing_denial` takes the largest of `claim.denials`, and
+    # `max` of nothing raises - and that is an ordinary claim, not an error.
+    if not claim.denials:
+        return {**recorded, "service_lines": lines, "governing": None}
+
+    denial = governing_denial(claim)
+    return {
+        **recorded,
+        "service_lines": lines,
+        "governing": {
+            "group": denial.group,
+            "reason_code": denial.reason_code,
+            "remark_codes": list(denial.remark_codes),
+        },
+    }
+
+
+def _charge(recorded: Any) -> str | None:
+    """A charge the remittance never stated, told apart from one that is zero.
+
+    A Claim read off an EOB carries no charge: the document says what was
+    adjusted, not what was billed, so `claim_from_extraction` leaves it at zero
+    rather than inventing one. Sending that zero on would put a number on screen
+    the payer never sent, and leave a browser to decide what it meant - which is
+    this rule, in a second language.
+    """
+    return None if recorded in (None, "0", "0.00") else str(recorded)
 
 
 def _parsed(line: str) -> dict[str, Any] | None:
@@ -92,7 +145,10 @@ def _parsed(line: str) -> dict[str, Any] | None:
 
 
 def _derived(
-    matrix: ClaimMatrix, event: Event, decided: dict[str, dict[str, Any]]
+    matrix: ClaimMatrix,
+    event: Event,
+    decided: dict[str, dict[str, Any]],
+    refused: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """What this event did to the claim it belongs to.
 
@@ -115,21 +171,25 @@ def _derived(
         return {
             "cells": None,
             "action": None,
-            "guardrail": None,
+            "determination": None,
             "guardrailed": False,
-            "priority": None,
+            "claim": None,
         }
 
-    determination = decided.get(event.claim_id, {})
-    guardrail = determination.get("guardrail")
-    priority = determination.get("priority")
+    determination = decided.get(event.claim_id)
 
     return {
         "cells": {phase: matrix.cell(event.claim_id, phase) for phase in PHASES},
         "action": matrix.action_for(event.claim_id),
-        "guardrail": guardrail,
+        # The whole Determination, in the shape `Determination.to_dict` already
+        # writes to `claims/<id>.json`. One object rather than its fields spread
+        # flat: the console shows a rationale, an evidence list and a Priority
+        # together, and they are one answer.
+        "determination": determination,
         # The same test `Determination.was_guardrailed` makes, made here so the
         # browser is told the answer instead of working it out.
-        "guardrailed": guardrail is not None,
-        "priority": priority,
+        "guardrailed": determination is not None and determination.get("guardrail") is not None,
+        # The payer's refusal, so the console can show it beside the
+        # Determination rather than presenting a conclusion alone.
+        "claim": refused.get(event.claim_id),
     }

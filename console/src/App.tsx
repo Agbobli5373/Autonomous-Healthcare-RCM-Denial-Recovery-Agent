@@ -5,6 +5,9 @@
  * - it names where a claim was worked and has no screen of its own.
  */
 
+import { useState } from "react";
+
+import { Detail } from "./Detail";
 import { Queue } from "./Queue";
 import { useQueue } from "./useQueue";
 
@@ -17,6 +20,8 @@ const CONNECTION_TEXT = {
 
 export function App() {
   const { claims, phases, connection } = useQueue();
+  const [openClaimId, setOpenClaimId] = useState<string | null>(null);
+  const selected = claims.find((claim) => claim.claimId === openClaimId) ?? null;
 
   return (
     <div className="shell">
@@ -51,7 +56,11 @@ export function App() {
         </main>
       ) : (
         <main>
-          <Queue claims={claims} phases={phases} />
+          {selected ? (
+            <Detail entry={selected} onClose={() => setOpenClaimId(null)} />
+          ) : (
+            <Queue claims={claims} phases={phases} onOpen={setOpenClaimId} />
+          )}
         </main>
       )}
     </div>

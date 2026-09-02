@@ -26,13 +26,58 @@ export interface Priority {
   expected_recovery: string;
 }
 
+/** One adjustment on a service line: what the payer refused, and why. */
+export interface Adjustment {
+  group: string;
+  reason_code: string;
+  amount: string;
+  remark_codes: string[];
+}
+
+export interface ServiceLine {
+  line_number: number;
+  procedure_code: string;
+  /** `null` when the remittance never stated one - the server decides that. */
+  charge: string | null;
+  adjustments: Adjustment[];
+}
+
+/** The denial the Determination answers, named by the server. */
+export interface GoverningDenial {
+  group: string;
+  reason_code: string;
+  remark_codes: string[];
+}
+
+/** What the payer refused: the Claim itself, and the left half of the comparison. */
+export interface Claim {
+  claim_id: string;
+  payer: string;
+  patient_id: string;
+  date_of_service: string;
+  service_lines: ServiceLine[];
+  // Which of these adjustments is *the* denial is a domain question - a
+  // contractual write-off is not one, however large - so the server answers it.
+  governing: GoverningDenial | null;
+}
+
+/** What the agent decided. The right half. */
+export interface Determination {
+  claim_id: string;
+  action: Action;
+  rationale: string;
+  evidence_required: string[];
+  guardrail: string | null;
+  priority: Priority | null;
+}
+
 /** Everything the server worked out about a claim, so the client need not. */
 export interface Derived {
   cells: Record<Phase, CellState> | null;
   action: Action | null;
-  guardrail: string | null;
   guardrailed: boolean;
-  priority: Priority | null;
+  determination: Determination | null;
+  claim: Claim | null;
 }
 
 export interface HelloMessage {
@@ -56,13 +101,19 @@ export interface ReplayedMessage {
 /** Discriminated, so no field has to be defended with a fallback. */
 export type StreamMessage = HelloMessage | EventMessage | ReplayedMessage;
 
-export interface Claim {
+/**
+ * One row of the queue: a Claim, and everything the server worked out about it.
+ *
+ * Not a `Claim` - that word belongs to the thing in `CONTEXT.md`, which this
+ * holds rather than is.
+ */
+export interface QueueEntry {
   claimId: string;
   runId: string;
   action: Action | null;
-  guardrail: string | null;
   guardrailed: boolean;
-  priority: Priority | null;
+  determination: Determination | null;
+  claim: Claim | null;
   cells: Record<Phase, CellState> | null;
 }
 
@@ -80,7 +131,7 @@ export interface Claim {
  * boolean with `||` made it monotonic - a claim rule-closed once could never
  * leave the rule section, however many times it was later worked and appealed.
  */
-export function applyEvent(claims: Map<string, Claim>, message: StreamMessage): Map<string, Claim> {
+export function applyEvent(claims: Map<string, QueueEntry>, message: StreamMessage): Map<string, QueueEntry> {
   if (message.type !== "event" || message.claim_id === null) {
     return claims;
   }
@@ -90,9 +141,9 @@ export function applyEvent(claims: Map<string, Claim>, message: StreamMessage): 
     claimId: message.claim_id,
     runId: message.run_id,
     action: message.derived.action,
-    guardrail: message.derived.guardrail,
     guardrailed: message.derived.guardrailed,
-    priority: message.derived.priority,
+    determination: message.derived.determination,
+    claim: message.derived.claim,
     cells: message.derived.cells,
   });
   return updated;
@@ -108,9 +159,9 @@ export function applyEvent(claims: Map<string, Claim>, message: StreamMessage): 
  *
  * `guardrailed` is read, not computed. The server decided it.
  */
-export function partition(claims: Iterable<Claim>): { ranked: Claim[]; ruled: Claim[] } {
-  const ranked: Claim[] = [];
-  const ruled: Claim[] = [];
+export function partition(claims: Iterable<QueueEntry>): { ranked: QueueEntry[]; ruled: QueueEntry[] } {
+  const ranked: QueueEntry[] = [];
+  const ruled: QueueEntry[] = [];
   for (const claim of claims) {
     (claim.guardrailed ? ruled : ranked).push(claim);
   }
@@ -127,6 +178,7 @@ export function partition(claims: Iterable<Claim>): { ranked: Claim[]; ruled: Cl
  * which are in the other list - but a claim mid-run has no Priority yet either,
  * and it belongs below the ones that have been weighed.
  */
-function expectedRecovery(claim: Claim): number {
-  return claim.priority ? Number(claim.priority.expected_recovery) : 0;
+function expectedRecovery(claim: QueueEntry): number {
+  const priority = claim.determination?.priority;
+  return priority ? Number(priority.expected_recovery) : 0;
 }
