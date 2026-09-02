@@ -277,11 +277,13 @@ def test_no_credential_travels_to_the_guest(archive: bytes) -> None:
         assert secret.encode() not in blob
 
 
-def test_the_guest_is_never_sent_the_code_that_talks_to_a_model(archive: bytes) -> None:
-    """The agent loop runs orchestrator-side, so it has no business in the guest.
+def test_the_guest_is_never_sent_orchestrator_only_code(archive: bytes) -> None:
+    """The guest serves the mocks and runs the analysis kernel. That is all.
 
-    Shipping it would not leak the key by itself, but it is the kind of drift
-    that ends with someone wondering why the sandbox needs an Anthropic client.
+    It never drives a browser, it never calls a model, and it has no screen.
+    Shipping any of that would not leak a key by itself, but it is the kind of
+    drift that ends with someone wondering why the sandbox needs an Anthropic
+    client - or a React bundle.
     """
     for package in ORCHESTRATOR_ONLY:
         assert not [n for n in names_in(archive) if f"/{package}/" in n], package

@@ -102,6 +102,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Where run directories are written (default: ./runs)",
     )
 
+    console_ui = sub.add_parser("console", help="Open the operator console")
+    console_ui.add_argument("--host", default="127.0.0.1")
+    console_ui.add_argument("--port", type=int, default=8090)
+
     portal = sub.add_parser("serve-portal", help="Run the mock payer portal locally")
     portal.add_argument("--host", default="127.0.0.1")
     portal.add_argument("--port", type=int, default=8080)
@@ -350,6 +354,25 @@ def _serve(app: FastAPI, host: str, port: int) -> int:
 
     uvicorn.run(app, host=host, port=port, log_level="warning")
     return 0
+
+
+def console_command(host: str, port: int) -> int:
+    """Serve the console's committed bundle.
+
+    No build step, and no Node. The JavaScript toolchain in `console/` exists
+    for developing this page; a reviewer types this command and nothing else.
+    """
+    from rcm_agent.console.server import ConsoleNotBuilt, create_app
+
+    display = Console()
+    try:
+        app = create_app()
+    except ConsoleNotBuilt as exc:
+        display.print(f"[bold red]{exc}[/]")
+        return EXIT_BAD_INPUT
+
+    display.print(f"console on http://{host}:{port}", style="dim")
+    return _serve(app, host, port)
 
 
 def serve_portal_command(host: str, port: int) -> int:
@@ -661,6 +684,8 @@ def main(argv: list[str] | None = None) -> int:
         return serve_practice_command(args.host, args.port)
     if args.command == "host-mocks":
         return host_mocks_command(args.runs_dir, args.document)
+    if args.command == "console":
+        return console_command(args.host, args.port)
     if args.command == "determine-all":
         return determine_all_command(args.runs_dir, plain=args.plain, local=args.local)
     if args.command == "browse":

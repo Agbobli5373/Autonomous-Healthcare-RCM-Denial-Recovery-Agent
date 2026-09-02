@@ -45,6 +45,9 @@ htmlcov/
 # Node / TypeScript
 # ---------------------------------------------------------------------------
 node_modules/
+# ...but NOT src/rcm_agent/console/static/, which is committed on purpose. A
+# reviewer must never install Node to run the demo, so the console's built
+# bundle ships and only its toolchain is ignored. See docs/adr/0003.
 dist/
 build/
 .next/
