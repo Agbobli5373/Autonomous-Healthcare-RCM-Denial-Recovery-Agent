@@ -39,7 +39,9 @@ from rcm_agent.agent.surface import (
     opening_message,
     tool_schemas,
 )
-from rcm_agent.browser.tools import ToolOutcome, download_eob, log_in, open_claim, search_claims
+from rcm_agent.browser.plumbing import ToolOutcome
+from rcm_agent.browser.practice import read_auth_record, write_note
+from rcm_agent.browser.tools import download_eob, log_in, open_claim, search_claims
 from rcm_agent.events import EventStream
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -66,6 +68,23 @@ class PortalAccess:
     url: str
     user: str
     password: str
+
+
+@dataclass(frozen=True, slots=True)
+class Workspace:
+    """The two systems the agent works, each with its own browser session.
+
+    Two sessions rather than two tabs, because they are two unrelated systems
+    with unrelated logins — the portal is signed into during the run and gets
+    signed out of on purpose, while the practice system arrives already
+    authenticated from a saved profile. Sharing a session would let one
+    system's session trouble become the other's.
+    """
+
+    portal_page: Page
+    portal: PortalAccess
+    practice_page: Page
+    practice_url: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +122,9 @@ class AgentRun:
     claim_id: str
     document: Path | None
     recovered: bool
+    noted: bool
+    """Whether the agent wrote its finding back to the patient's chart."""
+
     usage: TokenUsage
     steps: tuple[ToolOutcome, ...]
     said: str
@@ -125,10 +147,9 @@ class ModelClient(Protocol):
     async def create(self, **kwargs: Any) -> Any: ...
 
 
-async def work_the_portal(
-    page: Page,
+async def work_the_claim(
+    workspace: Workspace,
     *,
-    portal: PortalAccess,
     claim_id: str,
     stream: EventStream,
     documents: Path,
@@ -136,7 +157,9 @@ async def work_the_portal(
     client: ModelClient,
     escalation: Escalation = NAVIGATION,
 ) -> AgentRun:
-    """Let the model work the portal until it has the EOB or gives up."""
+    """Let the model work the claim across both systems until it is done."""
+    page = workspace.portal_page
+    portal = workspace.portal
     stream.emit(
         phase="portal",
         kind="phase_start",
@@ -183,10 +206,40 @@ async def work_the_portal(
             screenshots=screenshots,
         )
 
+    async def _read_auth_record(arguments: dict[str, Any]) -> ToolOutcome:
+        return await read_auth_record(
+            workspace.practice_page,
+            str(arguments["claim_id"]),
+            base_url=workspace.practice_url,
+            stream=stream,
+            screenshots=screenshots,
+        )
+
+    async def _write_note(arguments: dict[str, Any]) -> ToolOutcome:
+        return await write_note(
+            workspace.practice_page,
+            str(arguments["claim_id"]),
+            text=str(arguments["text"]),
+            base_url=workspace.practice_url,
+            stream=stream,
+            screenshots=screenshots,
+        )
+
     # Keyed by the same names the schemas are built from, so a tool the model can
     # see and a tool the loop can run cannot drift apart without a test noticing.
     handlers = dict(
-        zip(TOOL_NAMES, (_log_in, _search_claims, _open_claim, _download_eob), strict=True)
+        zip(
+            TOOL_NAMES,
+            (
+                _log_in,
+                _search_claims,
+                _open_claim,
+                _download_eob,
+                _read_auth_record,
+                _write_note,
+            ),
+            strict=True,
+        )
     )
 
     async def run_tool(name: str, arguments: dict[str, Any]) -> ToolOutcome:
@@ -202,11 +255,12 @@ async def work_the_portal(
     steps: list[ToolOutcome] = []
     document: Path | None = None
     recovered = False
+    noted = False
     expiry_is_outstanding = False
     said = ""
 
     async def plan_and_act() -> None:
-        nonlocal usage, document, recovered, expiry_is_outstanding, said
+        nonlocal usage, document, recovered, noted, expiry_is_outstanding, said
 
         for _ in range(MAX_STEPS):
             response = await client.create(
@@ -263,8 +317,10 @@ async def work_the_portal(
                     )
                 if outcome.outcome == "session_expired":
                     expiry_is_outstanding = True
-                if outcome.tool == TOOL_NAMES[-1] and outcome.ok:
+                if outcome.tool == "download_eob" and outcome.ok:
                     document = Path(str(outcome.detail["path"]))
+                if outcome.tool == "write_note" and outcome.ok:
+                    noted = True
 
                 results.append(
                     {
@@ -292,13 +348,19 @@ async def work_the_portal(
             kind="phase_end",
             claim_id=claim_id,
             outcome="ok" if document else "failed",
-            detail={**usage.as_detail(), "recovered": recovered, "tool_calls": len(steps)},
+            detail={
+                **usage.as_detail(),
+                "recovered": recovered,
+                "wrote_a_note": noted,
+                "tool_calls": len(steps),
+            },
         )
 
     return AgentRun(
         claim_id=claim_id,
         document=document,
         recovered=recovered,
+        noted=noted,
         usage=usage,
         steps=tuple(steps),
         said=said,

@@ -20,6 +20,7 @@ import pytest
 import uvicorn
 
 from rcm_agent.mocks.portal import create_app
+from rcm_agent.mocks.practice_management import create_app as create_practice_app
 
 PORTAL_USER = "provider"
 PORTAL_PASSWORD = "demo"
@@ -92,3 +93,31 @@ def fresh_portal() -> Iterator[str]:
     in the tool tests.
     """
     yield from _serve(0.0)
+
+
+def _serve_practice() -> Iterator[str]:
+    port = free_port()
+    server = uvicorn.Server(
+        uvicorn.Config(create_practice_app(), host="127.0.0.1", port=port, log_level="error")
+    )
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    for _ in range(200):
+        if server.started:
+            break
+        threading.Event().wait(0.05)
+    yield f"http://127.0.0.1:{port}"
+    server.should_exit = True
+    thread.join(timeout=10)
+
+
+@pytest.fixture
+def practice_url() -> Iterator[str]:
+    """The practice-management system, one per test.
+
+    Per test rather than per module because chart notes are held in memory: a
+    shared server would let one test's note be visible to the next, and a
+    write-back test that passes because of an earlier test's write is testing
+    nothing.
+    """
+    yield from _serve_practice()

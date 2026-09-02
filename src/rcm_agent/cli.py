@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rcm_agent import demo_script
-from rcm_agent.agent import AgentRun, PortalAccess, work_the_portal
+from rcm_agent.agent import AgentRun, PortalAccess, Workspace, work_the_claim
 from rcm_agent.agent.client import planning_client
 from rcm_agent.analysis.extract import Extraction
 from rcm_agent.browser.session import cloud_browser
@@ -24,6 +24,7 @@ from rcm_agent.domain import Determination
 from rcm_agent.events import EventStream
 from rcm_agent.fixtures.generate import generate_fixtures
 from rcm_agent.matrix import ClaimMatrix
+from rcm_agent.mocks.practice_management import storage_state as practice_storage_state
 from rcm_agent.panel import make_panel
 from rcm_agent.run_directory import RunDirectory
 from rcm_agent.sandbox import (
@@ -412,11 +413,34 @@ def browse_command(claim_id: str, runs_dir: Path) -> int:
         planner = planning_client(stream)
         async with hosted_mocks(stream) as hosting:
             portal = next(m for m in hosting.mocks if m.name == "payer-portal")
-            console.print(f"portal hosted at {portal.url_without_token}", style="dim")
-            async with cloud_browser(solari, stream) as page:
-                return await work_the_portal(
-                    page,
-                    portal=PortalAccess(url=portal.url, user=PORTAL_USER, password=PORTAL_PASSWORD),
+            practice = next(m for m in hosting.mocks if m.name == "practice-management")
+            console.print(f"portal   {portal.url_without_token}", style="dim")
+            console.print(f"practice {practice.url_without_token}", style="dim")
+
+            # Two browser sessions at once, and the sandbox serving both mocks
+            # underneath them. Browsers and sandboxes are separate concurrency
+            # counters, so two of one and one of the other fits the Free tier.
+            # Nested rather than sequential because the agent moves between the
+            # two systems and back; opening the practice session only when it is
+            # first needed would put a visible pause in the middle of the demo.
+            async with (
+                cloud_browser(solari, stream, label="payer-portal") as portal_page,
+                cloud_browser(
+                    solari,
+                    stream,
+                    storage_state=practice_storage_state(practice.url),
+                    label="practice-management",
+                ) as practice_page,
+            ):
+                return await work_the_claim(
+                    Workspace(
+                        portal_page=portal_page,
+                        portal=PortalAccess(
+                            url=portal.url, user=PORTAL_USER, password=PORTAL_PASSWORD
+                        ),
+                        practice_page=practice_page,
+                        practice_url=practice.url,
+                    ),
                     claim_id=claim_id,
                     stream=stream,
                     documents=run.documents_path,
@@ -442,6 +466,8 @@ def browse_command(claim_id: str, runs_dir: Path) -> int:
             console.print(f"  {step.tool:15} {step.outcome}")
         if work.recovered:
             console.print("the agent recovered from the session expiry", style="dim")
+        if work.noted:
+            console.print("the agent wrote its finding onto the patient's chart", style="dim")
         calls = work.usage.steps
         console.print(
             f"{calls} model call{'' if calls == 1 else 's'},  "

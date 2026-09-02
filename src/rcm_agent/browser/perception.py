@@ -88,3 +88,34 @@ async def capture_decision(
         screenshot=name,
         detail=detail,
     )
+
+
+def definition_pairs(tree: str) -> dict[str, str]:
+    """Read `term`/`definition` pairs out of an accessibility snapshot.
+
+    The practice-management system shows a chart as definition lists, which the
+    tree renders as alternating `- term:` and `- definition:` lines. Reading them
+    from the tree rather than with CSS selectors is the whole perception
+    argument applied to structured data: role and name are what a screen reader
+    gets, and they do not move when a stylesheet does.
+
+    Later entries win, which matters only if a page repeats a label; the chart
+    does not, and a silent overwrite is better than a silent drop if it ever
+    starts to.
+    """
+    pairs: dict[str, str] = {}
+    pending: str | None = None
+    for raw in tree.splitlines():
+        line = raw.strip().lstrip("- ").rstrip()
+        for role in ("term", "definition"):
+            prefix = f"{role}:"
+            if not line.startswith(prefix):
+                continue
+            value = line[len(prefix) :].strip().strip('"')
+            if role == "term":
+                pending = value
+            elif pending is not None:
+                pairs[pending] = value
+                pending = None
+            break
+    return pairs

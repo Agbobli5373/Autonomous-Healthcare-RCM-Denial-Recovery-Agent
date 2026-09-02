@@ -27,10 +27,13 @@ from rcm_agent.agent.loop import (
     PortalAccess,
     TokenUsage,
     UnknownTool,
-    work_the_portal,
+    Workspace,
+    work_the_claim,
 )
-from rcm_agent.agent.surface import SYSTEM_PROMPT, tool_schemas
+from rcm_agent.agent.surface import SYSTEM_PROMPT, TOOL_NAMES, tool_schemas
+from rcm_agent.browser.session import as_storage_state
 from rcm_agent.events import Event, EventStream
+from rcm_agent.mocks.practice_management import storage_state as practice_storage_state
 
 # --- a model made of tape --------------------------------------------------
 
@@ -174,11 +177,22 @@ class Driven:
         return [e for e in self.recorder.events if e.kind == kind]
 
 
-def drive(portal_url: str, tmp_path: Path, policy: Any, recorder: Recorder | None = None) -> Driven:
-    """Run one agent against a real browser and a real portal.
+def drive(
+    portal_url: str,
+    tmp_path: Path,
+    policy: Any,
+    recorder: Recorder | None = None,
+    practice_url: str | None = None,
+) -> Driven:
+    """Run one agent against real browsers and both really-served systems.
 
-    A `recorder` can be passed in so a test that expects the run to *raise*
-    can still read what was emitted before it did.
+    Two contexts in one browser rather than two browsers: what matters is that
+    the two systems have separate sessions and separate cookies, which is what a
+    context is. Two Solari browsers is the production arrangement and costs a
+    minute a run to prove.
+
+    A `recorder` can be passed in so a test that expects the run to *raise* can
+    still read what was emitted before it did.
     """
     from patchright.async_api import async_playwright
 
@@ -190,12 +204,25 @@ def drive(portal_url: str, tmp_path: Path, policy: Any, recorder: Recorder | Non
     async def go() -> Any:
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch()
-            context = await browser.new_context(accept_downloads=True)
-            page = await context.new_page()
+            portal_context = await browser.new_context(accept_downloads=True)
+            portal_page = await portal_context.new_page()
+
+            practice_page = portal_page
+            if practice_url:
+                practice_context = await browser.new_context(
+                    storage_state=as_storage_state(practice_storage_state(practice_url))
+                )
+                practice_page = await practice_context.new_page()
             try:
-                return await work_the_portal(
-                    page,
-                    portal=PortalAccess(url=portal_url, user=PORTAL_USER, password=PORTAL_PASSWORD),
+                return await work_the_claim(
+                    Workspace(
+                        portal_page=portal_page,
+                        portal=PortalAccess(
+                            url=portal_url, user=PORTAL_USER, password=PORTAL_PASSWORD
+                        ),
+                        practice_page=practice_page,
+                        practice_url=practice_url or portal_url,
+                    ),
                     claim_id=HERO_CLAIM,
                     stream=stream,
                     documents=tmp_path / "documents",
@@ -373,10 +400,17 @@ def test_the_credentials_are_not_in_anything_the_model_sees() -> None:
 
 
 def test_every_tool_the_loop_can_run_is_offered_to_the_model() -> None:
-    """A tool the model cannot see is a tool it cannot choose."""
-    offered = {s["name"] for s in tool_schemas(HERO_CLAIM)}
+    """A tool the model cannot see is a tool it cannot choose.
 
-    assert offered == {"log_in", "search_claims", "open_claim", "download_eob"}
+    Compared against `TOOL_NAMES`, which is what the loop dispatches on, rather
+    than against a set written out here. A third hardcoded copy could not have
+    caught either of the other two drifting — which is the whole failure this is
+    named for.
+    """
+    offered = {schema["name"] for schema in tool_schemas(HERO_CLAIM)}
+
+    assert offered == set(TOOL_NAMES)
+    assert len(TOOL_NAMES) == len(set(TOOL_NAMES)), "a name is listed twice"
 
 
 def test_the_prompt_explains_the_outcomes_without_prescribing_the_answer() -> None:

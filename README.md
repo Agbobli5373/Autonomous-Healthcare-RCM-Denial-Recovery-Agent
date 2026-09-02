@@ -108,11 +108,32 @@ URL without it.
 uv run rcm-agent browse
 ```
 
-Hosts the mocks in a sandbox, opens a **Solari cloud browser**, and hands
-**Claude Sonnet 5** four tools — `log_in`, `search_claims`, `open_claim`,
-`download_eob` — and one instruction: get this claim's EOB. There is no
+Hosts the mocks in a sandbox, opens **two Solari cloud browsers**, and hands
+**Claude Sonnet 5** six tools and one instruction: work this claim. There is no
 navigation sequence in the code. The model chooses each tool and its arguments,
 and decides when it is finished.
+
+Four of the tools drive the payer portal — `log_in`, `search_claims`,
+`open_claim`, `download_eob`. Two drive the practice-management system in a
+*second* browser session, authenticated from a saved profile:
+`read_auth_record` and `write_note`.
+
+**That second system is the point of the whole demo.** The payer denied the
+claim saying no prior authorization was on file. The agent leaves the portal,
+opens an unrelated system, and finds the Authorization that proves otherwise —
+then writes what it concluded onto the patient's chart, which is why that system
+could not be a static page.
+
+`read_auth_record` returns **typed fields**: the validity range as two dates, the
+covered HCPCS codes as a list, and the claim's date of service. It does not
+decide whether the Authorization covers the claim. That comparison is the one
+piece of real reasoning in this leg, and it belongs to the agent — a tool
+returning a `covers` boolean would move it into a `<=`.
+
+Two browser sessions and one sandbox run at the same time. Browsers and
+sandboxes are separate concurrency counters on the Free tier, so two of one and
+one of the other fits; this was confirmed by running it, not by reading the
+pricing page.
 
 It needs `ANTHROPIC_API_KEY` alongside `SOLARI_API_KEY` in the gitignored `.env`.
 **All model calls are orchestrator-side**: the key is read in this process and
