@@ -15,11 +15,68 @@ the part that must never be delegated to a model.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from rcm_agent.catalogue import NON_APPEALABLE_CODES, UNAPPEALABLE_REMARKS, profile_for
 from rcm_agent.domain import Adjustment, Claim, Determination, Priority
 
 GuardrailRule = Callable[[Claim], Determination | None]
+
+
+@dataclass(frozen=True, slots=True)
+class Guardrail:
+    """A rule and the name it is known by.
+
+    The name is carried rather than derived from the function: a rule's name and
+    the label its Determination ends up with are different things.
+    `nothing-was-refused` can answer with either `patient-responsibility` or
+    `no-denial` depending on what it found, and an inspector showing which rules
+    ran needs the rule, not one of its outcomes.
+    """
+
+    name: str
+    rule: GuardrailRule
+
+
+@dataclass(frozen=True, slots=True)
+class RuleOutcome:
+    """One rule, and what it did.
+
+    `name` rather than `rule`, because `Guardrail.rule` is the callable and two
+    attributes spelled the same meaning different things in one module.
+
+    `guardrail` carries the label the Determination ended up with, present only
+    when this rule fired. Without it the record contradicts itself: the trace
+    would say `nothing-was-refused` while the determination beside it says
+    `patient-responsibility`, and nothing would connect the two.
+    """
+
+    name: str
+    fired: bool
+    guardrail: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GuardrailTrace:
+    """What the guardrails did, and what they decided.
+
+    Only rules that actually ran appear. The loop short-circuits, so a rule
+    sitting after the one that fired never executed - listing it as `passed`
+    would record something that did not happen.
+    """
+
+    evaluated: tuple[RuleOutcome, ...]
+    determination: Determination | None
+
+    @property
+    def fired(self) -> RuleOutcome | None:
+        """The rule that answered the claim, if one did.
+
+        Only the last entry can have fired - the loop short-circuits - so this
+        reads it rather than searching for it.
+        """
+        last = self.evaluated[-1] if self.evaluated else None
+        return last if last is not None and last.fired else None
 
 
 def governing_denial(claim: Claim) -> Adjustment:
@@ -114,10 +171,10 @@ def _nothing_was_refused(claim: Claim) -> Determination | None:
     )
 
 
-GUARDRAILS: tuple[GuardrailRule, ...] = (
-    _unappealable_remark,
-    _nothing_was_refused,
-    _non_appealable_governing_code,
+GUARDRAILS: tuple[Guardrail, ...] = (
+    Guardrail("unappealable-remark", _unappealable_remark),
+    Guardrail("nothing-was-refused", _nothing_was_refused),
+    Guardrail("non-appealable-code", _non_appealable_governing_code),
 )
 """Order matters.
 
@@ -127,31 +184,50 @@ governing denial for the third to look at.
 """
 
 
-def guardrailed(claim: Claim) -> Determination | None:
-    """The first guardrail that fires, if any.
+def run_guardrails(claim: Claim) -> GuardrailTrace:
+    """Run the guardrails in order and report what they did.
 
     Split out because both routes to a Determination begin here and neither may
     skip it - ADR-0002 is only true while the guardrails run first, so there is
     one loop rather than a copy per caller.
+
+    Returns the trace rather than emitting it. This module decides whether a
+    patient's claim may be appealed; it does not also do I/O, and its tests do
+    not construct an event stream to call it. The caller owns what is recorded.
     """
+    evaluated: list[RuleOutcome] = []
     for guardrail in GUARDRAILS:
-        determination = guardrail(claim)
+        determination = guardrail.rule(claim)
         if determination is not None:
-            return determination
-    return None
+            evaluated.append(
+                RuleOutcome(name=guardrail.name, fired=True, guardrail=determination.guardrail)
+            )
+            return GuardrailTrace(tuple(evaluated), determination)
+        evaluated.append(RuleOutcome(name=guardrail.name, fired=False))
+    return GuardrailTrace(tuple(evaluated), None)
 
 
 def determine(claim: Claim) -> Determination:
     """Guardrails, then the catalogue's documented default for the family.
 
     The model-free Determination: what this project can say about a denial
-    without asking anything. `agent.determining.determine_with_judgement` is the
-    fuller route, and falls back to this one when a judgement is unusable.
+    without asking anything.
     """
-    determination = guardrailed(claim)
-    if determination is not None:
-        return determination
+    trace = run_guardrails(claim)
+    if trace.determination is not None:
+        return trace.determination
+    return from_catalogue(claim)
 
+
+def from_catalogue(claim: Claim) -> Determination:
+    """The documented default for the governing denial's family.
+
+    Split from `determine` so a caller that has *already* run the guardrails can
+    reach the default without running them again. `determine_with_judgement`
+    falls back here when a judgement is unusable, and it knows by then that no
+    rule fired; re-deciding that would evaluate the rules a second time and put a
+    second, unrecorded evaluation behind a Determination.
+    """
     denial = governing_denial(claim)
     profile = profile_for(denial.code)
 

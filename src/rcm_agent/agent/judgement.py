@@ -201,6 +201,7 @@ async def judge(
     """
     tool = decision_tool(claim)
     allowed = allowed_actions(claim)
+    facts = _facts(claim, denial)
     stream.emit(
         phase="analysis",
         kind="tool_call",
@@ -210,6 +211,13 @@ async def judge(
             "denial": denial.code,
             "model": escalation.model,
             "options": list(allowed),
+            # What varies per claim, and the whole basis of the inspector's
+            # claim that the Determination was read off the document rather
+            # than pattern-matched from a claim id. The system prompt is not
+            # here on purpose: it is a module constant, byte-identical in every
+            # run, already readable in source, and it would ship publicly in
+            # every exported run for nothing.
+            "facts": facts,
         },
     )
 
@@ -223,12 +231,25 @@ async def judge(
         # Forced: the answer is a Determination or it is nothing. Free text would
         # have to be parsed, and parsing is where a withheld action creeps back.
         tool_choice={"type": "tool", "name": DECISION_TOOL_NAME},
-        messages=[{"role": "user", "content": _facts(claim, denial)}],
+        messages=[{"role": "user", "content": facts}],
     )
 
     decided = _decision(response)
     action = str(decided.get("action", ""))
-    if action not in allowed:
+    usable = action in allowed
+    # Recorded either way, so a call always has a result - but stamped with what
+    # happened, not with having happened. An answer the narrowing had already
+    # ruled out is a refusal, and writing it down as `ok` would leave a reader an
+    # accepted model result whose action contradicts the Determination beside it.
+    stream.emit(
+        phase="analysis",
+        kind="tool_result",
+        tool="judge_denial",
+        claim_id=claim.claim_id,
+        outcome="ok" if usable else "failed",
+        detail={"denial": denial.code, "returned": dict(decided)},
+    )
+    if not usable:
         raise JudgementRefused(
             f"{denial.code}: the model answered {action!r}, which was not among its options"
         )

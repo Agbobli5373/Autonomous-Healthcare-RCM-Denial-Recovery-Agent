@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import inspect
 from datetime import date
 from decimal import Decimal
 
 import pytest
 
-from rcm_agent.determination import determine
+from rcm_agent.determination import GUARDRAILS, determine, run_guardrails
 from rcm_agent.domain import Action, Adjustment, Claim, ServiceLine
 
 DOS = date(2026, 3, 14)
@@ -286,3 +287,52 @@ def test_a_non_appealable_code_still_closes_when_it_is_the_denial(code: str) -> 
 
     assert determination.action == "close"
     assert determination.was_guardrailed
+
+
+# --- the guardrail trace ----------------------------------------------------
+
+
+def test_the_trace_names_every_rule_that_ran_in_order() -> None:
+    """The order is the safety property, so the record has to show it.
+
+    Until now the only evidence guardrails ran at all was the *absence* of a
+    model call, which proves the model was not asked and not that the rules were
+    consulted.
+    """
+    trace = run_guardrails(claim_with(adjustment("CO-197", "450.00", "N706")))
+
+    assert trace.determination is None, "nothing should fire on an appealable denial"
+    assert [outcome.name for outcome in trace.evaluated] == [rule.name for rule in GUARDRAILS]
+    assert not any(outcome.fired for outcome in trace.evaluated)
+
+
+def test_the_trace_stops_at_the_rule_that_fired() -> None:
+    """Short-circuit is real, so a rule after the fired one never ran.
+
+    Listing it as `passed` would be a record of something that did not happen.
+    """
+    trace = run_guardrails(claim_with(adjustment("CO-16", "450.00", "MA130")))
+
+    assert trace.determination is not None
+    assert trace.evaluated[-1].fired
+    assert len(trace.evaluated) < len(GUARDRAILS), "later rules must not be reported"
+    assert [outcome.name for outcome in trace.evaluated] == ["unappealable-remark"]
+
+
+def test_the_trace_is_produced_without_an_event_stream() -> None:
+    """ADR-0002's module keeps doing one thing.
+
+    A function deciding whether a patient's claim may be appealed does not also
+    do I/O, and its tests do not construct a stream to call it.
+    """
+
+    parameters = list(inspect.signature(run_guardrails).parameters)
+
+    assert parameters == ["claim"], "the rules take a claim and nothing else"
+
+
+def test_every_guardrail_is_named() -> None:
+    """The inspector prints these, so they are domain names and not identifiers."""
+    names = [rule.name for rule in GUARDRAILS]
+
+    assert names == ["unappealable-remark", "nothing-was-refused", "non-appealable-code"]
