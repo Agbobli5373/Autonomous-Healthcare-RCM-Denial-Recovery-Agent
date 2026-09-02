@@ -9,3 +9,11 @@
 # uv.lock is deliberately NOT marked -diff. A lockfile diff is noisy, but it is
 # also the place an unexpected dependency change shows up, and hiding it would
 # remove the one review surface where that is visible.
+
+# The console's source is hashed byte for byte, so a bundle built from anything
+# other than the committed source fails the suite (docs/adr/0003). A digest
+# taken over LF on one clone and CRLF on another would fail for everybody except
+# whoever last built it — the same silent, per-clone breakage as above. So the
+# source is LF everywhere, and the built bundle is never converted at all.
+console/** text eol=lf
+src/rcm_agent/console/static/** -text

@@ -1,0 +1,129 @@
+/* Structure by hairline rule rather than by card - the pattern the reference's
+   own product mockups use, and the one that survives density. */
+
+.shell {
+  max-width: 1240px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background: var(--surface);
+  border-left: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
+}
+
+.appbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius);
+  background: var(--navy);
+  color: var(--surface);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wordmark {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* Monospace carries machine facts - identifiers, states, codes - and never
+   prose. That is the distinction the reference makes, and it is what stops the
+   type reading as decoration. */
+.runchip {
+  padding: 3px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.rail {
+  display: flex;
+  align-items: center;
+  padding: 9px 18px;
+  border-bottom: 1px solid var(--rule);
+  overflow-x: auto;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+}
+
+.step + .step::before {
+  content: "";
+  width: 26px;
+  height: 1px;
+  margin: 0 10px;
+  background: var(--rule);
+  flex: none;
+}
+
+/* Hollow until a phase has run: the filled/hollow pair is the whole state
+   language of the rail, so it needs no legend. */
+.pip {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--rule-strong);
+  flex: none;
+}
+
+.lbl {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.empty {
+  padding: 64px 20px 80px;
+  max-width: 46ch;
+  margin: 0 auto;
+  text-align: center;
+}
+
+/* Large, light and tight - the reference's "premium" typography, which is the
+   operating system's own stack and costs nothing to ship. */
+.empty h1 {
+  margin: 0 0 10px;
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.empty p {
+  margin: 0;
+  color: var(--ink-2);
+  line-height: 1.65;
+}
+
+.empty code {
+  padding: 1px 5px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}

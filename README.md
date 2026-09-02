@@ -190,6 +190,41 @@ The session expiry is the one the demo turns on: the portal signs the agent out
 on its first claim detail, `open_claim` returns `session_expired`, and the run
 signs in again and carries on. The record calls that `recovery`, not `error`.
 
+## The console
+
+```bash
+uv run rcm-agent console
+```
+
+A web UI over what a run recorded: the queue of claims, what the payer refused
+beside what the agent determined, and an inspector showing how it got there.
+
+**Its built bundle is committed, and that is deliberate.** A reviewer must be
+able to run this demo in under fifteen minutes, and a JavaScript build step
+lands inside that budget. So the toolchain under `console/` exists for
+developing the page and for nobody else: `uv run` is the only command anyone
+needs, and Node is not in the prerequisites. `node_modules/` is not committed;
+the output it produces is.
+
+The page asks the network for nothing. There is no webfont - the typography is
+the operating system's own stack, which is what the reference this borrows from
+actually renders despite shipping a font of its own. Both themes are defined,
+including the unstamped default that most viewers are in, and motion stops when
+a viewer has asked it to.
+
+Working on the console itself needs Node:
+
+```bash
+cd console && npm install
+npm run build      # writes src/rcm_agent/console/static, which is committed
+npm run typecheck  # tsc --noEmit, strict
+npm test           # vitest
+```
+
+A change under `console/src` is not finished until it has been rebuilt: the
+build stamps the bundle with a digest of its inputs and `pytest` fails when the
+committed bundle came from anything else.
+
 ## Where things are
 
 | | |
@@ -197,6 +232,7 @@ signs in again and carries on. The record calls that `recovery`, not `error`.
 | Domain glossary | [`CONTEXT.md`](./CONTEXT.md) |
 | Architecture decisions | [`docs/adr/`](./docs/adr/) |
 | Research behind the decisions | [`docs/research/`](./docs/research/) |
+| The console's front end | [`console/`](./console/) (built output lives in `src/rcm_agent/console/static/`) |
 | The plan, as issues | [decision map](https://github.com/Agbobli5373/Autonomous-Healthcare-RCM-Denial-Recovery-Agent/issues/1) |
 
 ## Development
@@ -206,7 +242,11 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pyright
 uv run pytest
+(cd console && npm run typecheck && npm test)
 ```
+
+The last line needs Node and is only for changes to the console; everything
+above it is all a reviewer ever runs.
 
 The Solari smoke-test spike under `spikes/` needs its own extra:
 

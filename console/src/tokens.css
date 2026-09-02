@@ -1,0 +1,133 @@
+/* A reset, small and explicit.
+
+   Tailwind was installed here first, on the strength of a note in the stack
+   decision - and then used for nothing: every class in this console is
+   hand-written, while its preflight was 57% of the shipped stylesheet. A
+   framework that ships a reset and no utilities is a cost with no purchase, so
+   it went, and the handful of rules actually relied on are written out below.
+   It can come back the day a screen genuinely wants utilities. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* The palette, and the reasoning behind it, live here rather than in component
+   styles. One navy primary carries every deliberate accent; everything else is
+   greyscale; hue is permitted only inside data, where it means something.
+   Adapted from docs/research/aegishealth-visual-reference.md - the structure is
+   the reference's, the values are not, and that document is careful about the
+   difference between what was measured and what was inferred. */
+
+:root {
+  --ground: #fafbfc;
+  --surface: #ffffff;
+  --surface-2: #f4f6f8;
+  --rule: #e3e7ec;
+  --rule-strong: #cdd4dc;
+  --ink: #12161c;
+  --ink-2: #5a6472;
+  --ink-3: #8a94a2;
+  --navy: #1b3a6b;
+  --navy-soft: #e8eef7;
+  --focus: #2c6bd6;
+
+  /* Hue only inside data: one per Action, low saturation. */
+  --appeal: #1f6f4a;
+  --appeal-bg: #e7f2ec;
+  --rebill: #8a5a0b;
+  --rebill-bg: #f7efe0;
+  --close: #5b6673;
+  --close-bg: #edeff2;
+
+  /* Scrollbars, form controls and the canvas painted before the first frame
+     belong to the browser, not to this stylesheet. Without this they stay
+     light while everything around them goes dark. */
+  color-scheme: light;
+
+  --radius: 6px;
+
+  /* No webfont. The reference ships one and renders the OS stack anyway; its
+     "premium" typography is this, set large, light and tight. */
+  --ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* The viewer has three states, not two. The default setting stamps nothing at
+   all, so the unstamped document is the one most people see - and only
+   prefers-color-scheme separates light from dark there. Guarded so an explicit
+   light choice still beats a dark operating system. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0d1015;
+    --surface: #141920;
+    --surface-2: #1a2029;
+    --rule: #222933;
+    --rule-strong: #333c48;
+    --ink: #e7ebf1;
+    --ink-2: #98a2b2;
+    --ink-3: #6b7686;
+    --navy: #8ab0e8;
+    --navy-soft: #1a2434;
+    --focus: #6fa3f0;
+    --appeal: #5fbe8c;
+    --appeal-bg: #132a20;
+    --rebill: #d7a24c;
+    --rebill-bg: #2a2114;
+    --close: #8892a0;
+    --close-bg: #1c222b;
+  }
+}
+
+/* And again, so an explicit dark choice wins over a light operating system. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0d1015;
+  --surface: #141920;
+  --surface-2: #1a2029;
+  --rule: #222933;
+  --rule-strong: #333c48;
+  --ink: #e7ebf1;
+  --ink-2: #98a2b2;
+  --ink-3: #6b7686;
+  --navy: #8ab0e8;
+  --navy-soft: #1a2434;
+  --focus: #6fa3f0;
+  --appeal: #5fbe8c;
+  --appeal-bg: #132a20;
+  --rebill: #d7a24c;
+  --rebill-bg: #2a2114;
+  --close: #8892a0;
+  --close-bg: #1c222b;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Motion here will come to mean a claim changed. Someone who cannot use motion
+   still has to be able to read the run, and the reference we borrow from ships
+   no such rule - so it is set here rather than inherited. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

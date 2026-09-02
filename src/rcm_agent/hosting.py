@@ -27,14 +27,16 @@ GUEST_ROOT = "/tmp/rcm"
 leaves the mocks importable and empty — the worst of both outcomes.
 """
 
-ORCHESTRATOR_ONLY: tuple[str, ...] = ("agent", "browser")
+ORCHESTRATOR_ONLY: tuple[str, ...] = ("agent", "browser", "console")
 """Packages the guest has no business holding.
 
 The rule is short: **the guest serves the mocks and runs the analysis kernel. It
-never drives a browser and it never calls a model.** These two packages do those
-things, so they stay on this machine - the sandbox is reachable from the public
-internet through its preview URL for as long as the demo runs, and code that
-talks to a model does not belong on it.
+never drives a browser, it never calls a model, and it has no screen.** These
+packages do those things, so they stay on this machine - the sandbox is
+reachable from the public internet through its preview URL for as long as the
+demo runs, and code that talks to a model does not belong on it. `console` is
+here for a quieter reason: it is a page for a person, and nobody is looking at
+the guest.
 
 This is the one exception to building the archive by walking rather than by
 listing, and it is an *exclusion* rather than an inclusion for that reason: it
