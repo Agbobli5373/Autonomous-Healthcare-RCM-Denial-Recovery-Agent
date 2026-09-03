@@ -75,6 +75,20 @@ _Avoid_: threshold, confidence cutoff — a Guardrail is not a score
 How worth working a Determination is relative to others, from the amount at stake and the likelihood of recovery. Ranks a worklist. It never decides an Action.
 _Avoid_: recoverability score, confidence
 
+**Review**:
+A person's verdict on one Determination — approved or rejected, who decided, when, and on a rejection why. A second record rather than a change to the Determination: two actors made two decisions, and mutating the first would leave `action: appeal` ambiguous between what the agent judged and what survived review. A Review names the Determination it was given for by digest, so a re-run that changes the reading leaves the verdict over what its Reviewer actually read instead of authorising a reading nobody saw.
+_Avoid_: approval — the glossary already gives *approval* to Authorization, and a payer's advance approval for a service is a different thing entirely; sign-off, status
+
+**Verdict**:
+What a Review carries: **approved** or **rejected**. Nothing else — a Determination a Guardrail closed is not put to a Reviewer at all, because a rule was never a judgement and asking for a verdict would invent a decision that does not exist.
+
+**Counter-action**:
+The Action a Reviewer would have chosen instead, recorded on a rejecting Review. Optional, and only on a rejection — there is no *instead* inside an agreement. It is not a Determination: the agent did not judge it, and recording it as one would put a human's opinion where the record of the agent's reasoning belongs.
+
+**Reviewer**:
+The person who gives a Verdict. Named on the Review; nothing yet verifies the name, so it is a signature rather than an identity.
+_Avoid_: approver, user
+
 ## The evidence
 
 **Authorization**:

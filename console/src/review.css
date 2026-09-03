@@ -1,0 +1,147 @@
+/* Approving or rejecting: the one act on this screen that writes anything down. */
+
+.review,
+.recorded {
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--rule);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--rule);
+}
+
+.review .actions {
+  padding: 0;
+  border-top: none;
+}
+
+.btn {
+  padding: 7px 14px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--ink-3);
+}
+
+.btn.primary {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: var(--surface);
+}
+
+:root[data-theme="dark"] .btn.primary {
+  color: #0d1015;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .btn.primary {
+    color: #0d1015;
+  }
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rejecting {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 60ch;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field .k {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.field input,
+.field textarea,
+.field select {
+  padding: 7px 9px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  resize: vertical;
+}
+
+/* A refusal is an answer, not a failure, and it says what to do next - so it
+   reads as a note in the flow rather than as an alarm. */
+.refusal {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-left: 2px solid var(--rebill);
+  background: var(--rebill-bg);
+  font-size: 12.5px;
+  color: var(--ink);
+  max-width: 60ch;
+}
+
+.recorded .k {
+  display: block;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.recorded > div:first-child .k {
+  display: inline;
+  margin: 0;
+}
+
+.recorded .digest {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  word-break: break-all;
+}
+
+.review .note,
+.actions .note {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  max-width: 52ch;
+}
+
+.superseded {
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-left: 2px solid var(--rebill);
+  background: var(--rebill-bg);
+  color: var(--ink-2);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+/* The signature. Narrow, because a name is short and a wide box invites a
+   sentence - and it sits above the verdict rather than beside it, so the last
+   thing read before deciding is who is deciding. */
+.field.who {
+  max-width: 220px;
+  margin-bottom: 12px;
+}

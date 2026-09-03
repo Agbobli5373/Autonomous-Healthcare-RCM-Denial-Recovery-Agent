@@ -28,6 +28,7 @@ from rcm_agent.claim_io import claim_from_dict
 from rcm_agent.determination import governing_denial
 from rcm_agent.events import Event
 from rcm_agent.matrix import PHASES, ClaimMatrix
+from rcm_agent.review import digest_of
 from rcm_agent.strict_json import RecordFileError
 
 
@@ -172,6 +173,7 @@ def _derived(
             "cells": None,
             "action": None,
             "determination": None,
+            "determination_digest": None,
             "guardrailed": False,
             "claim": None,
         }
@@ -186,6 +188,11 @@ def _derived(
         # flat: the console shows a rationale, an evidence list and a Priority
         # together, and they are one answer.
         "determination": determination,
+        # Sent rather than computed in the browser. The digest is over the exact
+        # bytes the run wrote, and a client reproducing that serialisation would
+        # be re-deriving the one number whose whole job is to be checkable
+        # against the artifact.
+        "determination_digest": None if determination is None else digest_of(determination),
         # The same test `Determination.was_guardrailed` makes, made here so the
         # browser is told the answer instead of working it out.
         "guardrailed": determination is not None and determination.get("guardrail") is not None,
@@ -193,3 +200,21 @@ def _derived(
         # Determination rather than presenting a conclusion alone.
         "claim": refused.get(event.claim_id),
     }
+
+
+def determinations(runs_dir: Path) -> dict[str, dict[str, Any]]:
+    """The Determination that stands for each claim, and the run that made it.
+
+    Replayed rather than read from `claims/<id>.json`, so this and the console
+    agree by construction: both take the last run to have decided a claim, which
+    is the one an analyst is looking at.
+    """
+    latest: dict[str, dict[str, Any]] = {}
+    for event in replay(runs_dir):
+        determination = event["derived"]["determination"]
+        if event["kind"] == "determination" and determination is not None:
+            latest[str(event["claim_id"])] = {
+                "determination": determination,
+                "run_id": str(event["run_id"]),
+            }
+    return latest

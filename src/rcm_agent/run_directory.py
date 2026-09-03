@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +23,19 @@ from rcm_agent.fixtures.naming import claim_filename
 
 Status = Literal["running", "completed", "failed"]
 
+
+def claim_json(recorded: Mapping[str, Any]) -> str:
+    """The exact text `claims/<id>.json` holds, for a Determination as recorded.
+
+    One function rather than two identical `json.dumps` calls, because a Review's
+    digest is taken over these bytes and is justified by being recomputable from
+    the artifact. Written twice, the two serialisations would be joined by
+    nothing but coincidence: change the indent here and the digest would go on
+    being computed, go on matching itself, and quietly stop describing the file.
+    """
+    return json.dumps(dict(recorded), indent=2) + "\n"
+
+
 _SUBDIRECTORIES = ("claims", "screenshots", "documents")
 
 
@@ -29,9 +43,18 @@ def _no_summary() -> dict[str, int]:
     return {}
 
 
-def _write_atomically(destination: Path, payload: str) -> None:
+def write_atomically(destination: Path, payload: str) -> None:
+    """Write the payload whole, and write the same bytes on every platform.
+
+    `newline=""` because the default translates every newline to the host's, so
+    a run on Windows wrote `claims/<id>.json` with CRLF while a Review's digest
+    was taken over the LF form - and the one claim the digest makes, that anyone
+    holding the artifact can recompute it, was false on the machine that wrote
+    it. An artifact carrying a hash has to be byte-identical everywhere or the
+    hash describes a file only one platform has.
+    """
     staging = destination.with_name(f".{destination.name}.tmp")
-    staging.write_text(payload, encoding="utf-8")
+    staging.write_text(payload, encoding="utf-8", newline="")
     os.replace(staging, destination)
 
 
@@ -150,7 +173,7 @@ class RunDirectory:
         # Written atomically. `write_text` truncates before writing, so a kill
         # landing in that window leaves a corrupt run.json — in the one
         # requirement that is specifically about surviving kills.
-        _write_atomically(
+        write_atomically(
             self.run_json_path,
             json.dumps(self.state.to_dict(), indent=2, ensure_ascii=False) + "\n",
         )
@@ -165,7 +188,7 @@ class RunDirectory:
         because nothing was weighed.
         """
         destination = self.claims_path / claim_filename(determination.claim_id)
-        _write_atomically(destination, json.dumps(determination.to_dict(), indent=2) + "\n")
+        write_atomically(destination, claim_json(determination.to_dict()))
         return destination
 
     def complete(self, *, finished_at: datetime, summary: dict[str, int] | None = None) -> None:

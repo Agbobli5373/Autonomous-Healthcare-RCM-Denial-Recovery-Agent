@@ -43,7 +43,14 @@ describe("folding events into a queue", () => {
       outcome: null,
       screenshot: null,
       detail: {},
-      derived: { cells: null, action: null, guardrailed: false, determination: null, claim: null },
+      derived: {
+        cells: null,
+        action: null,
+        guardrailed: false,
+        determination: null,
+        determination_digest: null,
+        claim: null,
+      },
     };
 
     expect(fold([runLevel])).toHaveLength(0);

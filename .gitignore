@@ -84,6 +84,12 @@ desktop.ini
 # ---------------------------------------------------------------------------
 runs/
 
+# Verdicts, kept beside the runs they judge rather than inside them - a completed
+# run is never appended to. Ignored for the same reason `runs/` is: this is
+# working data. A published example commits its reviews alongside its run, both
+# force-added, or the artifact shows proposals and no decisions (see #59).
+reviews/
+
 # ---------------------------------------------------------------------------
 # Browser profiles
 #

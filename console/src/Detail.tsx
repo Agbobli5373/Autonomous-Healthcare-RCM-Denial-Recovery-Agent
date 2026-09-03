@@ -15,6 +15,8 @@ import { useState } from "react";
 
 import { ACTIONS } from "./actions";
 import { Inspector } from "./Inspector";
+import { ReviewControls } from "./ReviewControls";
+import type { Review } from "./reviews";
 import type { EventMessage, QueueEntry, ServiceLine } from "./claims";
 
 function Lines({ lines }: { lines: ServiceLine[] }) {
@@ -80,10 +82,14 @@ function Lines({ lines }: { lines: ServiceLine[] }) {
 export function Detail({
   entry,
   runEvents = [],
+  review = null,
+  onReviewed,
   onClose,
 }: {
   entry: QueueEntry;
   runEvents?: EventMessage[];
+  review?: Review | null;
+  onReviewed?: (review: Review) => void;
   onClose: () => void;
 }) {
   const [inspecting, setInspecting] = useState(false);
@@ -191,6 +197,13 @@ export function Detail({
           )}
         </div>
       </div>
+
+      <ReviewControls
+        entry={entry}
+        digest={entry.determinationDigest}
+        review={review}
+        onRecorded={(recorded) => onReviewed?.(recorded)}
+      />
 
       {determination && determination.evidence_required.length > 0 && (
         <div className="ev">
