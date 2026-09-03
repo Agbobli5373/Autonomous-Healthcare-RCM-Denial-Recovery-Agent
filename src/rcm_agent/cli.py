@@ -31,6 +31,7 @@ from rcm_agent.fixtures.naming import eob_filename
 from rcm_agent.matrix import ClaimMatrix
 from rcm_agent.mocks.practice_management import storage_state as practice_storage_state
 from rcm_agent.panel import make_panel
+from rcm_agent.publishable_run import UnsafeToPublish, publish
 from rcm_agent.run_directory import RunDirectory
 from rcm_agent.sandbox import (
     ProvisioningError,
@@ -110,6 +111,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     console_ui.add_argument(
         "--runs-dir", type=Path, default=Path("runs"), help="Where run directories live"
+    )
+
+    publishable = sub.add_parser(
+        "publishable-run",
+        help="Copy a run with anything credential-shaped removed, ready to publish",
+    )
+    publishable.add_argument("run", type=Path, help="The run directory to export")
+    publishable.add_argument(
+        "--out", type=Path, default=Path("docs/example-run"), help="Where to write the copy"
     )
 
     portal = sub.add_parser("serve-portal", help="Run the mock payer portal locally")
@@ -360,6 +370,31 @@ def _serve(app: FastAPI, host: str, port: int) -> int:
     import uvicorn
 
     uvicorn.run(app, host=host, port=port, log_level="warning")
+    return 0
+
+
+def publishable_run_command(run: Path, out_dir: Path) -> int:
+    """Export a run that is safe to commit and safe to host.
+
+    One artifact for both, so there is one thing to inspect and one thing to
+    trust rather than two that might differ.
+    """
+    display = Console()
+    try:
+        published = publish(run, out_dir)
+    except UnsafeToPublish as exc:
+        display.print(f"[bold red]not published[/] {exc}")
+        return EXIT_BAD_INPUT
+
+    files = sum(1 for path in published.rglob("*") if path.is_file())
+    display.print(f"published {files} files to {published}")
+    # Precise about what was and was not done: this removes credential-shaped
+    # strings from text. It does not read images, so a screenshot is published
+    # exactly as it was captured.
+    display.print(
+        "credential-shaped strings removed from text; screenshots are unexamined.",
+        style="dim",
+    )
     return 0
 
 
@@ -702,6 +737,8 @@ def main(argv: list[str] | None = None) -> int:
         return serve_practice_command(args.host, args.port)
     if args.command == "host-mocks":
         return host_mocks_command(args.runs_dir, args.document)
+    if args.command == "publishable-run":
+        return publishable_run_command(args.run, args.out)
     if args.command == "console":
         return console_command(
             args.host, args.port, runs_dir=args.runs_dir, open_browser=not args.no_open
