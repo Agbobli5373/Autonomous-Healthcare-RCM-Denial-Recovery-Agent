@@ -89,8 +89,20 @@ export interface EventMessage {
   type: "event";
   run_id: string;
   seq: number;
+  ts: string;
+  phase: string;
   kind: string;
+  tool: string | null;
   claim_id: string | null;
+  outcome: string | null;
+  /** Named for the event's `seq`, so an image and its tool call share a key. */
+  screenshot: string | null;
+  /**
+   * What the emitting tool recorded. Its shape is that tool's business, which is
+   * why the queue reads `derived` instead - but the inspector shows what a run
+   * actually said, so it reads this.
+   */
+  detail: Record<string, unknown>;
   derived: Derived;
 }
 
@@ -115,6 +127,14 @@ export interface QueueEntry {
   determination: Determination | null;
   claim: Claim | null;
   cells: Record<Phase, CellState> | null;
+  /**
+   * This run's events for this claim, in the order they happened.
+   *
+   * Kept because the inspector shows what the run recorded rather than a
+   * summary of it. Reset when a later run picks the claim up: mixing two runs'
+   * events under one claim is the same mistake the derived fields refuse.
+   */
+  events: EventMessage[];
 }
 
 /**
@@ -136,6 +156,9 @@ export function applyEvent(claims: Map<string, QueueEntry>, message: StreamMessa
     return claims;
   }
 
+  const previous = claims.get(message.claim_id);
+  const sameRun = previous?.runId === message.run_id;
+
   const updated = new Map(claims);
   updated.set(message.claim_id, {
     claimId: message.claim_id,
@@ -145,6 +168,9 @@ export function applyEvent(claims: Map<string, QueueEntry>, message: StreamMessa
     determination: message.derived.determination,
     claim: message.derived.claim,
     cells: message.derived.cells,
+    // The derived fields are replaced wholesale; the events accumulate. Both
+    // are scoped to one run, for the same reason.
+    events: sameRun && previous ? [...previous.events, message] : [message],
   });
   return updated;
 }

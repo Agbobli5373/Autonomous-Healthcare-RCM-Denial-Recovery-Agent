@@ -19,7 +19,7 @@ const CONNECTION_TEXT = {
 } as const;
 
 export function App() {
-  const { claims, phases, connection } = useQueue();
+  const { claims, phases, connection, runEvents } = useQueue();
   const [openClaimId, setOpenClaimId] = useState<string | null>(null);
   const selected = claims.find((claim) => claim.claimId === openClaimId) ?? null;
 
@@ -57,7 +57,11 @@ export function App() {
       ) : (
         <main>
           {selected ? (
-            <Detail entry={selected} onClose={() => setOpenClaimId(null)} />
+            <Detail
+              entry={selected}
+              runEvents={runEvents.get(selected.runId) ?? []}
+              onClose={() => setOpenClaimId(null)}
+            />
           ) : (
             <Queue claims={claims} phases={phases} onOpen={setOpenClaimId} />
           )}

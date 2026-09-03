@@ -35,8 +35,14 @@ describe("folding events into a queue", () => {
       type: "event",
       run_id: "r",
       seq: 0,
+      ts: "2026-01-01T00:00:00+00:00",
+      phase: "setup",
       kind: "tool_call",
+      tool: "provision_sandbox",
       claim_id: null,
+      outcome: null,
+      screenshot: null,
+      detail: {},
       derived: { cells: null, action: null, guardrailed: false, determination: null, claim: null },
     };
 

@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 
-import { applyEvent, type QueueEntry, type Phase, type StreamMessage } from "./claims";
+import {
+  applyEvent,
+  type EventMessage,
+  type Phase,
+  type QueueEntry,
+  type StreamMessage,
+} from "./claims";
 
 export type Connection = "connecting" | "replaying" | "ready" | "lost";
 
@@ -8,6 +14,14 @@ export interface Stream {
   claims: QueueEntry[];
   phases: Phase[];
   connection: Connection;
+  /**
+   * Events belonging to a run rather than to any one claim, by run.
+   *
+   * The browser tools do not tag their captures with a claim, so this is where
+   * the agent's browser work arrives. The queue drops these - a row that
+   * answers to nobody - and the inspector needs them.
+   */
+  runEvents: Map<string, EventMessage[]>;
 }
 
 /**
@@ -20,6 +34,7 @@ export interface Stream {
 export function useQueue(): Stream {
   const [entries, setEntries] = useState<Map<string, QueueEntry>>(new Map());
   const [phases, setPhases] = useState<Phase[]>([]);
+  const [runEvents, setRunEvents] = useState<Map<string, EventMessage[]>>(new Map());
   const [connection, setConnection] = useState<Connection>("connecting");
 
   useEffect(() => {
@@ -37,6 +52,14 @@ export function useQueue(): Stream {
         setConnection("ready");
         return;
       }
+      if (message.claim_id === null) {
+        setRunEvents((current) => {
+          const next = new Map(current);
+          next.set(message.run_id, [...(next.get(message.run_id) ?? []), message]);
+          return next;
+        });
+        return;
+      }
       setEntries((current) => applyEvent(current, message));
     };
     // Told apart from "nothing to show" on purpose: an empty queue that never
@@ -48,5 +71,5 @@ export function useQueue(): Stream {
     return () => socket.close();
   }, []);
 
-  return { claims: [...entries.values()], phases, connection };
+  return { claims: [...entries.values()], phases, connection, runEvents };
 }

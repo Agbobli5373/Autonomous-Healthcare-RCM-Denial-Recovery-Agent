@@ -30,6 +30,7 @@ function claim(overrides: Partial<QueueEntry> = {}): QueueEntry {
     },
     claim: claimRecord("CLM-2026-0001"),
     cells: null,
+    events: [],
     ...overrides,
   };
 }

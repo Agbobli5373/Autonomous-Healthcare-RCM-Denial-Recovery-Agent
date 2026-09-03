@@ -11,8 +11,11 @@
  * carries the comparison and evidence lives below it.
  */
 
+import { useState } from "react";
+
 import { ACTIONS } from "./actions";
-import type { QueueEntry, ServiceLine } from "./claims";
+import { Inspector } from "./Inspector";
+import type { EventMessage, QueueEntry, ServiceLine } from "./claims";
 
 function Lines({ lines }: { lines: ServiceLine[] }) {
   return (
@@ -74,12 +77,22 @@ function Lines({ lines }: { lines: ServiceLine[] }) {
   );
 }
 
-export function Detail({ entry, onClose }: { entry: QueueEntry; onClose: () => void }) {
+export function Detail({
+  entry,
+  runEvents = [],
+  onClose,
+}: {
+  entry: QueueEntry;
+  runEvents?: EventMessage[];
+  onClose: () => void;
+}) {
+  const [inspecting, setInspecting] = useState(false);
   const { determination, claim } = entry;
   const governing = claim?.governing ?? null;
 
   return (
     <section className="detail" aria-label={`Claim ${entry.claimId}`}>
+      {inspecting && <Inspector entry={entry} runEvents={runEvents} onClose={() => setInspecting(false)} />}
       <div className="facts">
         <span className="k">claim</span> <span className="id">{entry.claimId}</span>
         {claim && (
@@ -105,6 +118,9 @@ export function Detail({ entry, onClose }: { entry: QueueEntry; onClose: () => v
             ))}
           </>
         )}
+        <button className="ghost" onClick={() => setInspecting(true)}>
+          Inspector
+        </button>
         <button className="ghost" onClick={onClose}>
           Close
         </button>

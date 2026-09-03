@@ -140,11 +140,11 @@
   color: var(--ink);
 }
 
-.verdict {
+.detail > .split .verdict {
   margin-bottom: 11px;
 }
 
-.verdict .big {
+.detail > .split .verdict .big {
   font-size: 19px;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -260,18 +260,11 @@
   padding-top: 2px;
 }
 
-/* The one control on this screen, and it was rendering unstyled: `ghost` was
-   used here and defined nowhere. */
-.detail .ghost {
-  margin-left: auto;
-  padding: 4px 10px;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  font-size: 12px;
-  color: var(--ink-2);
+/* Pushed to the end of the fact bar; the button itself is defined in shell.css. */
+.facts .ghost:last-child {
+  margin-left: 8px;
 }
 
-.detail .ghost:hover {
-  border-color: var(--rule-strong);
-  color: var(--ink);
+.facts .ghost:nth-last-child(2) {
+  margin-left: auto;
 }
