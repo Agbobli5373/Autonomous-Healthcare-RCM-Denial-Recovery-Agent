@@ -225,6 +225,24 @@ A change under `console/src` is not finished until it has been rebuilt: the
 build stamps the bundle with a digest of its inputs and `pytest` fails when the
 committed bundle came from anything else.
 
+### Publishing a run
+
+```bash
+uv run rcm-agent publishable-run runs/<run-id> --out docs/example-run
+```
+
+Copies a run with anything credential-shaped removed from its **text** — the key
+fingerprint, and the access token in a preview URL — and refuses to hand over a
+copy that still carries one, deleting it rather than returning it. The redaction
+is a walk over everything a run recorded rather than a list of known fields, so
+content added later cannot quietly bypass it.
+
+It does not read images. A screenshot is published exactly as it was captured,
+and the fixtures are synthetic precisely so that is safe.
+
+The same artifact is what the repository commits and what a hosted console
+serves, so there is one thing to inspect and one thing to trust.
+
 ## Where things are
 
 | | |
