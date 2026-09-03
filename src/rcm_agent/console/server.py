@@ -25,7 +25,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from rcm_agent.console.replay import replay
@@ -79,7 +80,31 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
         except WebSocketDisconnect:
             return
 
-    # Mounted last and at the root, so the socket route above is matched first.
+    runs_root = root.resolve()
+
+    @app.get("/runs/{run_id}/screenshots/{name}")
+    def screenshot(run_id: str, name: str) -> FileResponse:
+        """One captured screenshot, by the run it belongs to and its file name.
+
+        Both parts of the path come from the request and neither is trusted. An
+        earlier version resolved the permitted directory *through* `run_id`, so
+        the boundary moved with the input it was supposed to constrain and
+        `run_id` of `..` walked straight out - a check that could not fail.
+
+        The boundary is now `runs_root`, resolved once, before any request. Each
+        segment is also rejected outright if it contains a separator or a parent
+        reference, so a traversal is refused rather than merely contained.
+        """
+        for segment in (run_id, name):
+            if segment in {"", ".", ".."} or {"/", "\\"} & set(segment):
+                raise HTTPException(status_code=404, detail="no such screenshot")
+
+        candidate = (runs_root / run_id / "screenshots" / name).resolve()
+        if not candidate.is_file() or runs_root not in candidate.parents:
+            raise HTTPException(status_code=404, detail="no such screenshot")
+        return FileResponse(candidate)
+
+    # Mounted last and at the root, so the routes above are matched first.
     # `html=True` serves index.html for `/`.
     app.mount("/", StaticFiles(directory=STATIC_ROOT, html=True), name="console")
     return app

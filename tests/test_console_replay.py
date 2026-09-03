@@ -541,3 +541,83 @@ def test_a_claim_of_only_write_offs_has_no_governing_denial(tmp_path: Path) -> N
 
     assert claim["governing"] is None
     assert claim["service_lines"], "the lines still travel; only the denial is absent"
+
+
+# --- the screenshots the inspector shows ------------------------------------
+
+
+def test_a_screenshot_is_served_from_the_run_it_belongs_to(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from rcm_agent.console.server import create_app
+
+    run = write_run(tmp_path, "2026-01-01T00-00-00Z", [determination("CLM-1", "appeal")])
+    (run / "screenshots").mkdir(exist_ok=True)
+    (run / "screenshots" / "0004-log_in.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    client = TestClient(create_app(tmp_path))
+    response = client.get("/runs/2026-01-01T00-00-00Z/screenshots/0004-log_in.png")
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"\x89PNG")
+
+
+def test_neither_part_of_the_path_can_walk_out_of_the_runs_directory(tmp_path: Path) -> None:
+    """Both segments come from the request, and neither is trusted.
+
+    An earlier version resolved the permitted directory *through* `run_id`, so
+    the boundary moved with the input it was meant to constrain: `run_id` of
+    `..` escaped, and the check could not fail. The `name` half was never the
+    reachable one - the router will not match a `/` in it - so a test that only
+    tried `name` passed without the guard existing at all.
+    """
+    from fastapi.testclient import TestClient
+
+    from rcm_agent.console.server import create_app
+
+    runs = tmp_path / "runs"
+    write_run(runs, "2026-01-01T00-00-00Z", [determination("CLM-1", "appeal")])
+    (runs / "2026-01-01T00-00-00Z" / "screenshots").mkdir(exist_ok=True)
+    # A sibling of the runs directory, laid out so a `..` in `run_id` lands on it.
+    (tmp_path / "screenshots").mkdir()
+    (tmp_path / "screenshots" / "secret.txt").write_text("not for anyone", encoding="utf-8")
+
+    client = TestClient(create_app(runs))
+
+    for attempt in ("%2E%2E", "..%2F..", "%2e%2e"):
+        response = client.get(f"/runs/{attempt}/screenshots/secret.txt")
+
+        assert response.status_code == 404, f"{attempt!r} reached outside the runs directory"
+        assert "not for anyone" not in response.text
+
+
+def test_the_guard_is_what_refuses_it_not_the_router(tmp_path: Path) -> None:
+    """Otherwise the test passes with the guard deleted.
+
+    Starlette will not match a `/` inside a path segment, so a traversal in
+    `name` is refused before the handler runs. Only the handler's own message
+    proves the containment check did anything.
+    """
+    from fastapi.testclient import TestClient
+
+    from rcm_agent.console.server import create_app
+
+    runs = tmp_path / "runs"
+    write_run(runs, "2026-01-01T00-00-00Z", [determination("CLM-1", "appeal")])
+    client = TestClient(create_app(runs))
+
+    response = client.get("/runs/%2E%2E/screenshots/anything.png")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "no such screenshot", "the router answered, not the guard"
+
+
+def test_a_screenshot_that_does_not_exist_is_a_plain_404(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    from rcm_agent.console.server import create_app
+
+    write_run(tmp_path, "2026-01-01T00-00-00Z", [determination("CLM-1", "appeal")])
+    client = TestClient(create_app(tmp_path))
+
+    assert client.get("/runs/2026-01-01T00-00-00Z/screenshots/nope.png").status_code == 404
