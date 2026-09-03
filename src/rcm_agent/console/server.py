@@ -23,16 +23,17 @@ ticket makes it one by leaving this connection open instead of closing it.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from rcm_agent.console.replay import determinations, replay
+from rcm_agent.console.replay import RunStream, determinations
 from rcm_agent.domain import Action
 from rcm_agent.matrix import PHASES
 from rcm_agent.review import (
@@ -47,6 +48,15 @@ STATIC_ROOT = Path(__file__).resolve().parent / "static"
 """Where `console/` builds to. Committed, and served as-is."""
 
 DEFAULT_RUNS = Path("runs")
+
+POLL_SECONDS = 0.25
+"""How often a followed run is checked for new events.
+
+Fast enough that a phase advancing reads as immediate, slow enough that an idle
+console costs a `stat` per run four times a second. The reads are small and
+synchronous: a run's log is a few kilobytes, and a thread hop per poll would
+buy nothing measurable.
+"""
 
 DEFAULT_REVIEWS = Path("reviews")
 """Outside `runs/`, because a completed run is never appended to."""
@@ -87,6 +97,36 @@ class VerdictRequest(BaseModel):
     determination_digest: str
 
 
+def _cursor(asked: list[str]) -> dict[str, int]:
+    """`<run id>:<seq>` pairs, as far as they can be understood.
+
+    Split from the right, because a run id is free to contain a colon and the
+    sequence number is not. An entry that makes no sense is dropped rather than
+    refused: the cost is that run being sent again, which the client folds
+    harmlessly, against refusing a connection over a malformed query.
+    """
+    seen: dict[str, int] = {}
+    for entry in asked:
+        run_id, _, seq = entry.rpartition(":")
+        if not run_id or not seq.lstrip("-").isdigit():
+            continue
+        seen[run_id] = int(seq)
+    return seen
+
+
+async def _until_it_leaves(socket: WebSocket) -> None:
+    """Resolve when the browser goes away.
+
+    Nothing is expected from the client, so anything it says is discarded; the
+    only informative outcome is the disconnect.
+    """
+    try:
+        while True:
+            await socket.receive_text()
+    except WebSocketDisconnect:
+        return
+
+
 def create_app(runs_dir: Path | None = None, reviews_dir: Path | None = None) -> FastAPI:
     """The console as an app, so it can be tested without a port."""
     if not (STATIC_ROOT / "index.html").is_file():
@@ -100,26 +140,52 @@ def create_app(runs_dir: Path | None = None, reviews_dir: Path | None = None) ->
     app = FastAPI(title="Denial Recovery Console", docs_url=None, redoc_url=None)
 
     @app.websocket("/events")
-    async def events(socket: WebSocket) -> None:
-        """Replay every run, then hold the connection open.
+    async def events(socket: WebSocket, after: Annotated[list[str] | None, Query()] = None) -> None:
+        """Every event a run recorded, and then every one it records next.
 
-        Held rather than closed so the client can tell "there is nothing more
-        yet" from "the server went away" - and so that following a live run is a
-        change to what happens after this loop, not a change to the protocol.
+        One loop, not two: `catch_up` yields what it has not yielded before, so
+        the first pass happens to be the history and every later one happens to
+        be what has arrived since. There is no replay mode to leave, which is
+        why opening the console mid-run shows the whole story rather than
+        joining blank.
+
+        `after` is a reconnecting client saying how far it got, once per run it
+        has heard of: `<run id>:<seq>`. Per run rather than one pair, because
+        `seq` counts per run - with two runs in flight, a single "newest thing
+        you were sent" silently dropped everything the older one recorded next.
+        Server-sent events would have carried a cursor in `Last-Event-ID`;
+        WebSocket was chosen for the channel back a later effort wants, so
+        resume is built here instead.
         """
         await socket.accept()
         # The phase names come from the server so they live in one place. They
         # are a constant of the domain rather than per-run data, so they are sent
         # once here instead of riding on every event.
         await socket.send_json({"type": "hello", "phases": list(PHASES)})
-        for enriched in replay(root):
-            await socket.send_json({"type": "event", **enriched})
-        await socket.send_json({"type": "replayed"})
+
+        stream = RunStream(root, after=_cursor(after) if after else None)
+
+        # A task of its own, because nothing is expected from the browser and the
+        # only thing a read tells us is that it has gone. Without it, a client
+        # that closed mid-poll would be discovered only on the next write.
+        async def send_whatever_arrived() -> None:
+            for enriched in stream.catch_up():
+                await socket.send_json({"type": "event", **enriched})
+
+        left = asyncio.create_task(_until_it_leaves(socket))
         try:
-            # Nothing is expected from the browser. This waits for it to leave.
-            await socket.receive_text()
+            await send_whatever_arrived()
+            # Not "the end", but "you are level with the disk". The client stops
+            # saying it is reading runs; the socket goes on carrying events.
+            await socket.send_json({"type": "replayed"})
+
+            while not left.done():
+                await asyncio.sleep(POLL_SECONDS)
+                await send_whatever_arrived()
         except WebSocketDisconnect:
             return
+        finally:
+            left.cancel()
 
     @app.get("/reviews")
     def reviews() -> dict[str, Any]:

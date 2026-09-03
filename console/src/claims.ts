@@ -154,17 +154,23 @@ export interface QueueEntry {
  * boolean with `||` made it monotonic - a claim rule-closed once could never
  * leave the rule section, however many times it was later worked and appealed.
  */
-export function applyEvent(claims: Map<string, QueueEntry>, message: StreamMessage): Map<string, QueueEntry> {
+export function applyEvent(
+  claims: Map<string, QueueEntry>,
+  message: StreamMessage,
+): Map<string, QueueEntry> {
   if (message.type !== "event" || message.claim_id === null) {
     return claims;
   }
-
-  const previous = claims.get(message.claim_id);
-  const sameRun = previous?.runId === message.run_id;
-
   const updated = new Map(claims);
-  updated.set(message.claim_id, {
-    claimId: message.claim_id,
+  updated.set(message.claim_id, rowFor(claims.get(message.claim_id), message));
+  return updated;
+}
+
+/** One row, as of this event. Shared so a batch folds the way one event does. */
+function rowFor(previous: QueueEntry | undefined, message: EventMessage): QueueEntry {
+  const sameRun = previous?.runId === message.run_id;
+  return {
+    claimId: message.claim_id as string,
     runId: message.run_id,
     action: message.derived.action,
     guardrailed: message.derived.guardrailed,
@@ -175,8 +181,36 @@ export function applyEvent(claims: Map<string, QueueEntry>, message: StreamMessa
     // The derived fields are replaced wholesale; the events accumulate. Both
     // are scoped to one run, for the same reason.
     events: sameRun && previous ? [...previous.events, message] : [message],
-  });
-  return updated;
+  };
+}
+
+/**
+ * Fold a whole batch, in one pass.
+ *
+ * A socket delivering a burst — a run catching up, or a reconnect replaying —
+ * hands the queue one frame per event, and a state update per frame re-renders
+ * the table once per event. The events are folded first and the queue is set
+ * once, so a burst costs what a single event costs.
+ *
+ * One copy of the map for the batch rather than one per event: coalescing the
+ * renders and then allocating sixty maps to do it would be half the fix.
+ *
+ * The same map comes back when a batch changed nothing, so a frame carrying only
+ * run-level events does not re-render a table that has not moved.
+ */
+export function applyEvents(
+  claims: Map<string, QueueEntry>,
+  messages: StreamMessage[],
+): Map<string, QueueEntry> {
+  let folded: Map<string, QueueEntry> | null = null;
+  for (const message of messages) {
+    if (message.type !== "event" || message.claim_id === null) {
+      continue;
+    }
+    folded ??= new Map(claims);
+    folded.set(message.claim_id, rowFor(folded.get(message.claim_id), message));
+  }
+  return folded ?? claims;
 }
 
 /**

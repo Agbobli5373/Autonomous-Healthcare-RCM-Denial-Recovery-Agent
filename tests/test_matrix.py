@@ -163,3 +163,50 @@ def test_unknown_claims_are_ignored_rather_than_crashing() -> None:
     stream.emit(phase="portal", kind="phase_start", claim_id="CLM-9999")
 
     assert matrix.cell("CLM-0001", "portal") == "pending"
+
+
+# --- claims that arrive rather than being known in advance ------------------
+
+
+def test_a_claim_can_be_admitted_after_the_matrix_was_built() -> None:
+    """A live tail learns a run's claims from the run, one event at a time.
+
+    The panel is handed its three claims before anything happens. A console
+    following a run in flight is not: the first it hears of a claim is an event
+    about it, and a matrix that could only be filled from a list decided up front
+    made the whole log have to be read before any of it could be sent.
+    """
+    matrix = ClaimMatrix([])
+
+    matrix.admit("CLM-0009")
+
+    assert matrix.claim_ids == ["CLM-0009"]
+    assert all(matrix.cell("CLM-0009", phase) == "pending" for phase in PHASES)
+
+
+def test_admitting_a_claim_twice_does_not_reset_what_it_did() -> None:
+    """Every event names its claim, so admission is asked for far more than once."""
+    matrix = ClaimMatrix([])
+    stream = stream_into(matrix)
+
+    matrix.admit("CLM-0009")
+    stream.emit(phase="portal", kind="phase_start", claim_id="CLM-0009")
+    matrix.admit("CLM-0009")
+
+    assert matrix.claim_ids == ["CLM-0009"]
+    assert matrix.cell("CLM-0009", "portal") == "running"
+
+
+def test_a_claim_nobody_admitted_is_still_ignored() -> None:
+    """Admission stays explicit.
+
+    The panel is given the claims it is working and ignores anything else on
+    purpose. Auto-admitting on sight would grow a row in the terminal mid-run,
+    which is a different decision than this one and belongs to whoever wants it.
+    """
+    matrix = ClaimMatrix(["CLM-0001"])
+    stream = stream_into(matrix)
+
+    stream.emit(phase="portal", kind="phase_start", claim_id="CLM-0009")
+
+    assert matrix.claim_ids == ["CLM-0001"]

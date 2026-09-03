@@ -141,11 +141,23 @@
   gap: 5px;
 }
 
+/* The only motion in the console: a cell easing from one state to another,
+   which is a phase that just changed. Nothing else moves. A row does not slide
+   in - that would be decoration, and would say "new" about a claim that has
+   been in the queue since yesterday and was only just picked up. And a running
+   cell does not pulse: a pulse marks duration rather than change, and a run
+   that died mid-phase leaves a cell running forever, so the console would beat
+   away over work that stopped hours ago. Suppressed by the reduced-motion rule
+   in `tokens.css`. */
 .cell {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   border: 1.5px solid var(--rule-strong);
+  transition:
+    background-color 220ms ease,
+    border-color 220ms ease,
+    box-shadow 220ms ease;
 }
 
 .c-running {

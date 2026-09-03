@@ -14,55 +14,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from tests.runs import DOS, determination, write_run
+
 from rcm_agent.console.replay import replay
 from rcm_agent.matrix import PHASES
-
-DOS = "2026-03-14T00:00:00+00:00"
-
-
-def write_run(root: Path, run_id: str, events: list[dict[str, Any]]) -> Path:
-    """A run directory holding exactly these events, in this order."""
-    run = root / run_id
-    (run / "claims").mkdir(parents=True)
-    lines = [
-        json.dumps(
-            {
-                "seq": seq,
-                "ts": DOS,
-                "phase": event.get("phase", "analysis"),
-                "kind": event["kind"],
-                "tool": event.get("tool"),
-                "claim_id": event.get("claim_id"),
-                "outcome": event.get("outcome"),
-                "screenshot": None,
-                "detail": event.get("detail", {}),
-            }
-        )
-        for seq, event in enumerate(events)
-    ]
-    (run / "events.ndjson").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return run
-
-
-def determination(claim_id: str, action: str, guardrail: str | None = None) -> dict[str, Any]:
-    priority = (
-        None
-        if guardrail
-        else {"amount_at_stake": "1250.00", "likelihood": 0.45, "expected_recovery": "562.50"}
-    )
-    return {
-        "kind": "determination",
-        "claim_id": claim_id,
-        "outcome": "ok",
-        "detail": {
-            "claim_id": claim_id,
-            "action": action,
-            "rationale": "because the remittance said so",
-            "evidence_required": [],
-            "guardrail": guardrail,
-            "priority": priority,
-        },
-    }
 
 
 def test_every_recorded_event_comes_back_in_the_order_it_happened(tmp_path: Path) -> None:

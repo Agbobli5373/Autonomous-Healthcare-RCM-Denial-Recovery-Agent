@@ -37,11 +37,34 @@ class ClaimMatrix:
     """An event sink holding one cell per claim per phase, plus what was decided."""
 
     def __init__(self, claim_ids: Sequence[str]) -> None:
-        self.claim_ids = list(claim_ids)
-        self._cells: dict[tuple[str, Phase], CellState] = {
-            (claim_id, phase): "pending" for claim_id in self.claim_ids for phase in PHASES
-        }
+        self.claim_ids: list[str] = []
+        self._cells: dict[tuple[str, Phase], CellState] = {}
         self._actions: dict[str, str] = {}
+        self._admitted: set[str] = set()
+        for claim_id in claim_ids:
+            self.admit(claim_id)
+
+    def admit(self, claim_id: str) -> None:
+        """Start tracking a claim, whether it was known at the start or not.
+
+        The constructor calls this for every claim it is handed, so a claim's
+        cells are seeded in one place however it arrives.
+
+        The panel is handed its claims in advance; a console following a run in
+        flight is not, and hears of each one first through an event about it.
+        Admission stays explicit rather than happening on sight, because the
+        panel ignores unknown claims on purpose - growing a row in the terminal
+        mid-run is a different decision, and not this one.
+
+        Idempotent, because every event names its claim and so asks far more
+        than once.
+        """
+        if claim_id in self._admitted:
+            return
+        self.claim_ids.append(claim_id)
+        for phase in PHASES:
+            self._cells[(claim_id, phase)] = "pending"
+        self._admitted.add(claim_id)
 
     def cell(self, claim_id: str, phase: Phase) -> CellState:
         return self._cells[(claim_id, phase)]
@@ -59,7 +82,7 @@ class ClaimMatrix:
 
     def handle(self, event: Event) -> None:
         claim_id = event.claim_id
-        if claim_id is None or claim_id not in self.claim_ids:
+        if claim_id is None or claim_id not in self._admitted:
             # Run-level events, and anything about a claim we are not tracking,
             # belong in the tail rather than the matrix.
             return
