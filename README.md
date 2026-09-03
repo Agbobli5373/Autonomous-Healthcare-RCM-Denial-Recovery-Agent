@@ -199,6 +199,13 @@ uv run rcm-agent console
 A web UI over what a run recorded: the queue of claims, what the payer refused
 beside what the agent determined, and an inspector showing how it got there.
 
+**It follows a run in flight.** Start a run in another terminal with the console
+open and the queue fills as the agent works - rows resolving, phases advancing,
+nothing reloaded. The console reads `runs/` and nothing tells it a run has
+started, so a run launched any way at all is equally visible; opening the
+console halfway through replays from the first event and then follows, and a
+dropped connection reconnects and resumes from where it got to.
+
 **Its built bundle is committed, and that is deliberate.** A reviewer must be
 able to run this demo in under fifteen minutes, and a JavaScript build step
 lands inside that budget. So the toolchain under `console/` exists for

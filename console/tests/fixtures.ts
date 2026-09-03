@@ -1,6 +1,6 @@
 /** Stream messages shaped the way the server actually sends them. */
 
-import type { EventMessage, Priority, Claim } from "../src/claims";
+import type { Claim, Derived, EventMessage, Priority } from "../src/claims";
 
 export const CELLS = {
   portal: "done",
@@ -92,6 +92,38 @@ export function determination(
             },
       determination_digest: action === null ? null : "d".repeat(64),
       claim: claimRecord(claimId),
+    },
+  };
+}
+
+/** Any event, for the tests that care about its place in the stream. */
+export function event(
+  overrides: Partial<Omit<EventMessage, "derived">> & { derived?: Partial<Derived> } = {},
+): EventMessage {
+  const { derived, ...rest } = overrides;
+  return {
+    type: "event",
+    run_id: "2026-01-01T00-00-00Z",
+    seq: 0,
+    ts: "2026-01-01T00:00:00+00:00",
+    phase: "analysis",
+    kind: "phase_start",
+    tool: null,
+    claim_id: "CLM-1",
+    outcome: null,
+    screenshot: null,
+    detail: {},
+    ...rest,
+    // Merged rather than replaced: spreading `overrides` whole made a caller
+    // wanting one different cell restate the entire derived block.
+    derived: {
+      cells: { ...CELLS },
+      action: null,
+      guardrailed: false,
+      determination: null,
+      determination_digest: null,
+      claim: null,
+      ...derived,
     },
   };
 }
