@@ -272,9 +272,9 @@ def test_whether_a_rule_closed_the_claim_is_decided_here(tmp_path: Path) -> None
     }
 
     assert by_claim["CLM-1"]["guardrailed"] is False
-    assert by_claim["CLM-1"]["guardrail"] is None
+    assert by_claim["CLM-1"]["determination"]["guardrail"] is None
     assert by_claim["CLM-2"]["guardrailed"] is True
-    assert by_claim["CLM-2"]["guardrail"] == "unappealable-remark:MA130"
+    assert by_claim["CLM-2"]["determination"]["guardrail"] == "unappealable-remark:MA130"
 
 
 def test_the_priority_travels_with_the_determination(tmp_path: Path) -> None:
@@ -282,7 +282,7 @@ def test_the_priority_travels_with_the_determination(tmp_path: Path) -> None:
 
     derived = list(replay(tmp_path))[-1]["derived"]
 
-    assert derived["priority"]["expected_recovery"] == "562.50"
+    assert derived["determination"]["priority"]["expected_recovery"] == "562.50"
 
 
 def test_a_guardrailed_claim_carries_no_priority(tmp_path: Path) -> None:
@@ -293,7 +293,7 @@ def test_a_guardrailed_claim_carries_no_priority(tmp_path: Path) -> None:
         [determination("CLM-2", "close", guardrail="unappealable-remark:MA130")],
     )
 
-    assert list(replay(tmp_path))[-1]["derived"]["priority"] is None
+    assert list(replay(tmp_path))[-1]["derived"]["determination"]["priority"] is None
 
 
 def test_a_line_this_build_cannot_read_costs_one_row_not_the_stream(tmp_path: Path) -> None:
@@ -346,7 +346,7 @@ def test_every_event_after_a_determination_still_describes_it(tmp_path: Path) ->
     last = list(replay(tmp_path))[-1]["derived"]
 
     assert last["action"] == "appeal"
-    assert last["priority"]["expected_recovery"] == "562.50"
+    assert last["determination"]["priority"]["expected_recovery"] == "562.50"
     assert last["guardrailed"] is False
 
 
@@ -363,5 +363,181 @@ def test_a_rule_closed_claim_carries_its_rule_on_every_later_event(tmp_path: Pat
     last = list(replay(tmp_path))[-1]["derived"]
 
     assert last["guardrailed"] is True
-    assert last["guardrail"] == "unappealable-remark:MA130"
-    assert last["priority"] is None
+    assert last["determination"]["guardrail"] == "unappealable-remark:MA130"
+    assert last["determination"]["priority"] is None
+
+
+def claim_record(claim_id: str) -> dict[str, Any]:
+    """What the payer refused, as a run now records it."""
+    return {
+        "kind": "claim",
+        "claim_id": claim_id,
+        "detail": {
+            "claim_id": claim_id,
+            "payer": "Cascade Health Plan",
+            "patient_id": "PAT-40219",
+            "date_of_service": "2026-03-14",
+            "service_lines": [
+                {
+                    "line_number": 2,
+                    "procedure_code": "E0601",
+                    "charge": "1250.00",
+                    "adjustments": [
+                        {
+                            "group": "CO",
+                            "reason_code": "197",
+                            "amount": "1250.00",
+                            "remark_codes": ["N706"],
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+
+
+def test_the_refusal_travels_beside_the_determination(tmp_path: Path) -> None:
+    """Approving is a comparison, so both halves have to reach the browser.
+
+    A run kept the Determination and not the Claim it answered, so nothing
+    downstream could show what the payer actually said - only the conclusion
+    drawn from it.
+    """
+    write_run(
+        tmp_path,
+        "2026-01-01T00-00-00Z",
+        [claim_record("CLM-1"), determination("CLM-1", "appeal")],
+    )
+
+    derived = list(replay(tmp_path))[-1]["derived"]
+
+    assert derived["claim"]["payer"] == "Cascade Health Plan"
+    assert derived["claim"]["service_lines"][0]["adjustments"][0]["remark_codes"] == ["N706"]
+
+
+def test_a_rule_closed_claim_still_shows_what_the_payer_said(tmp_path: Path) -> None:
+    """The guardrailed claim has no model call, so it cannot come from the facts.
+
+    Its refusal has to be recorded in its own right, or the one claim whose story
+    matters most would have an empty half.
+    """
+    write_run(
+        tmp_path,
+        "2026-01-01T00-00-00Z",
+        [
+            claim_record("CLM-2"),
+            determination("CLM-2", "close", guardrail="unappealable-remark:MA130"),
+        ],
+    )
+
+    derived = list(replay(tmp_path))[-1]["derived"]
+
+    assert derived["claim"] is not None
+    assert derived["guardrailed"] is True
+
+
+def test_the_refusal_rides_on_every_later_event_too(tmp_path: Path) -> None:
+    write_run(
+        tmp_path,
+        "2026-01-01T00-00-00Z",
+        [
+            claim_record("CLM-1"),
+            determination("CLM-1", "appeal"),
+            {"kind": "phase_end", "phase": "analysis", "claim_id": "CLM-1", "outcome": "ok"},
+        ],
+    )
+
+    assert list(replay(tmp_path))[-1]["derived"]["claim"] is not None
+
+
+def test_the_governing_denial_is_named_by_the_server(tmp_path: Path) -> None:
+    """A contractual write-off is not the denial being answered.
+
+    `governing_denial` takes the largest *denial*, and an adjustment that does
+    not refuse payment is not one. A browser taking "the biggest number on the
+    claim" would show `CO-45` - a write-off - as the code being answered, and on
+    the rule-closed claim that hides the `MA130` the guardrail fired on.
+    """
+    record = claim_record("CLM-2")
+    record["detail"]["service_lines"] = [
+        {
+            "line_number": 1,
+            "procedure_code": "A4253",
+            "charge": "78.00",
+            "adjustments": [
+                {
+                    "group": "CO",
+                    "reason_code": "16",
+                    "amount": "78.00",
+                    "remark_codes": ["MA130"],
+                }
+            ],
+        },
+        {
+            "line_number": 2,
+            "procedure_code": "E1390",
+            "charge": "450.00",
+            # Larger than the denial, and not a denial: a contractual write-off.
+            "adjustments": [
+                {"group": "CO", "reason_code": "45", "amount": "92.50", "remark_codes": []}
+            ],
+        },
+    ]
+    write_run(tmp_path, "2026-01-01T00-00-00Z", [record, determination("CLM-2", "close")])
+
+    governing = list(replay(tmp_path))[-1]["derived"]["claim"]["governing"]
+
+    assert governing["reason_code"] == "16", "the write-off is bigger and is not a denial"
+    assert governing["remark_codes"] == ["MA130"]
+
+
+def test_a_charge_the_remittance_never_stated_is_sent_as_nothing(tmp_path: Path) -> None:
+    """Told apart from a charge that is genuinely zero, and not left to a browser.
+
+    A Claim read off an EOB carries no charge - the document says what was
+    adjusted, not what was billed - so sending the placeholder zero on would put
+    a number on screen the payer never sent.
+    """
+    record = claim_record("CLM-1")
+    record["detail"]["service_lines"][0]["charge"] = "0"
+    write_run(tmp_path, "2026-01-01T00-00-00Z", [record, determination("CLM-1", "appeal")])
+
+    lines = list(replay(tmp_path))[-1]["derived"]["claim"]["service_lines"]
+
+    assert lines[0]["charge"] is None
+
+
+def test_a_charge_that_is_known_still_travels(tmp_path: Path) -> None:
+    record = claim_record("CLM-1")
+    record["detail"]["service_lines"][0]["charge"] = "1250.00"
+    write_run(tmp_path, "2026-01-01T00-00-00Z", [record, determination("CLM-1", "appeal")])
+
+    lines = list(replay(tmp_path))[-1]["derived"]["claim"]["service_lines"]
+
+    assert lines[0]["charge"] == "1250.00"
+
+
+def test_a_claim_of_only_write_offs_has_no_governing_denial(tmp_path: Path) -> None:
+    """An ordinary claim, not an error.
+
+    `governing_denial` takes the largest of `claim.denials`, and a claim whose
+    every adjustment is a contractual write-off has none - `max` of nothing
+    raises. Guarded rather than caught, so a real parse failure still surfaces.
+    """
+    record = claim_record("CLM-3")
+    record["detail"]["service_lines"] = [
+        {
+            "line_number": 1,
+            "procedure_code": "E1390",
+            "charge": "450.00",
+            "adjustments": [
+                {"group": "CO", "reason_code": "45", "amount": "92.50", "remark_codes": []}
+            ],
+        }
+    ]
+    write_run(tmp_path, "2026-01-01T00-00-00Z", [record, determination("CLM-3", "close")])
+
+    claim = list(replay(tmp_path))[-1]["derived"]["claim"]
+
+    assert claim["governing"] is None
+    assert claim["service_lines"], "the lines still travel; only the denial is absent"

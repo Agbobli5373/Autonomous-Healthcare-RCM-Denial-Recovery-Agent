@@ -143,3 +143,25 @@ describe("more than one claim closed by a rule", () => {
     expect(ruled).toHaveLength(2);
   });
 });
+
+describe("opening a claim", () => {
+  it("replaces the queue with the claim, and goes back", () => {
+    const socket = open();
+
+    socket.deliver(determination("CLM-2026-0001", "appeal"));
+    socket.deliver({ type: "replayed" });
+
+    act(() => {
+      screen.getByLabelText("Open CLM-2026-0001").click();
+    });
+
+    expect(screen.getByText(/what the payer said/i)).toBeDefined();
+
+    act(() => {
+      screen.getByText("Close").click();
+    });
+
+    expect(screen.queryByText(/what the payer said/i)).toBeNull();
+    expect(screen.getByText(/work queue/i)).toBeDefined();
+  });
+});

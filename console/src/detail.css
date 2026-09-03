@@ -1,0 +1,277 @@
+/* The claim detail: a comparison, not a conclusion. */
+
+.detail {
+  border-top: 1px solid var(--rule);
+}
+
+/* Monospace is reserved for machine facts - claim ids, codes, dates - and the
+   payer's name is not one of them. The bar is set in the UI face and the
+   identifiers opt in, rather than the whole bar opting in and prose riding
+   along. */
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 0;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.facts .id {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.facts .k {
+  margin-right: 5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.facts .sep {
+  margin: 0 9px;
+  color: var(--ink-3);
+}
+
+.facts .codechip + .detail .codechip {
+  margin-left: 5px;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* Below this the two halves stop being a comparison and start being a queue of
+   their own, so they stack rather than shrink. */
+@media (max-width: 860px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.half {
+  padding: 16px 18px 20px;
+  min-width: 0;
+}
+
+.half + .half {
+  border-left: 1px solid var(--rule);
+}
+
+@media (max-width: 860px) {
+  .half + .half {
+    border-left: none;
+    border-top: 1px solid var(--rule);
+  }
+}
+
+.half h3 {
+  margin: 0 0 12px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Wide content scrolls inside its own box. The page body never scrolls
+   sideways, whatever a remittance turns out to contain. */
+.scrollx {
+  overflow-x: auto;
+}
+
+.lines {
+  width: 100%;
+  /* Without this the table shrinks to fit and the scroll container it sits in
+     never does anything - columns squash instead of scrolling, which is the
+     failure the container was added to prevent. */
+  min-width: 340px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.lines th {
+  padding: 0 8px 5px 0;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--ink-3);
+}
+
+.lines td {
+  padding: 7px 8px 7px 0;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  vertical-align: top;
+}
+
+.lines .right,
+.lines td.right {
+  text-align: right;
+  padding-right: 0;
+}
+
+.detail .muted {
+  color: var(--ink-3);
+  font-size: 10.5px;
+}
+
+.detail .codechip {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink);
+}
+
+.verdict {
+  margin-bottom: 11px;
+}
+
+.verdict .big {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* A rule down the side rather than a box around it: the rationale is a quotation
+   from the agent, and a card would make it furniture. */
+.rationale {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 13px;
+  line-height: 1.62;
+}
+
+.cite {
+  border-left: 2px solid var(--navy);
+  padding: 2px 0 2px 12px;
+}
+
+.cite.ruled {
+  border-left-color: var(--close);
+}
+
+.badge {
+  display: inline-block;
+  margin-bottom: 11px;
+  padding: 3px 7px;
+  border-radius: 3px;
+  background: var(--close-bg);
+  color: var(--close);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.score {
+  display: flex;
+  gap: 26px;
+  margin-top: 16px;
+  padding-top: 13px;
+  border-top: 1px solid var(--rule);
+}
+
+.stat .lab {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.stat .val {
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.noscore {
+  margin: 16px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--rule);
+  max-width: 52ch;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+/* Full width, beneath the split. At ten items under a long rationale the two
+   halves starve each other, so evidence gets the whole row. */
+.ev {
+  padding: 16px 18px 22px;
+}
+
+.ev h3 {
+  margin: 0 0 11px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.evlist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: evidence;
+}
+
+.evlist li {
+  counter-increment: evidence;
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.evlist li:last-child {
+  border-bottom: none;
+}
+
+.evlist li::before {
+  content: counter(evidence, decimal-leading-zero);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  padding-top: 2px;
+}
+
+/* The one control on this screen, and it was rendering unstyled: `ghost` was
+   used here and defined nowhere. */
+.detail .ghost {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.detail .ghost:hover {
+  border-color: var(--rule-strong);
+  color: var(--ink);
+}

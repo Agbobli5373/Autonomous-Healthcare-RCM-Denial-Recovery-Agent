@@ -32,6 +32,12 @@ Kind = Literal[
     "phase_end",
     "tool_call",
     "tool_result",
+    # `claim` is what the payer refused; `determination` is what the agent
+    # decided about it. Both, because a console showing only the second would be
+    # presenting a conclusion with nothing to check it against - and the
+    # rule-closed claim, which never reaches a model, has nowhere else to keep
+    # its service lines.
+    "claim",
     "determination",
     "guardrails",
     "recovery",

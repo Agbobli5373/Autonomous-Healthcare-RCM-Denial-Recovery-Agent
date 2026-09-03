@@ -6,27 +6,20 @@
  * single ranked list cannot say it.
  */
 
-import { partition, type CellState, type Claim, type Phase } from "./claims";
+import { ACTIONS } from "./actions";
+import {
+  partition,
+  type Action as ActionName,
+  type CellState,
+  type Phase,
+  type QueueEntry,
+} from "./claims";
 
-/**
- * Two characters per Action, so the column never becomes the widest thing in a
- * row. Keyed on the glossary's five; an Action added there without being added
- * here renders its own name rather than a shrug, which is wrong on screen but
- * legible - and findable.
- */
-const ABBREVIATION: Record<string, string> = {
-  appeal: "AP",
-  corrected_claim: "CC",
-  rebill: "RB",
-  patient_bill: "PB",
-  close: "CL",
-};
-
-function Action({ action }: { action: string | null }) {
+function Action({ action }: { action: ActionName | null }) {
   if (!action) {
     return <span className="pill p-pending">··</span>;
   }
-  return <span className={`pill p-${action}`}>{ABBREVIATION[action] ?? action}</span>;
+  return <span className={`pill p-${action}`}>{ACTIONS[action].abbreviation}</span>;
 }
 
 /**
@@ -47,30 +40,55 @@ function Phases({ cells, phases }: { cells: Record<Phase, CellState> | null; pha
 }
 
 
-function Row({ claim, ranked, phases }: { claim: Claim; ranked: boolean; phases: Phase[] }) {
+function Row({
+  claim,
+  ranked,
+  phases,
+  onOpen,
+}: {
+  claim: QueueEntry;
+  ranked: boolean;
+  phases: Phase[];
+  onOpen: (claimId: string) => void;
+}) {
   return (
-    <div className={ranked ? "qrow" : "qrow norank"}>
+    <button
+      type="button"
+      className={ranked ? "qrow" : "qrow norank"}
+      onClick={() => onOpen(claim.claimId)}
+      aria-label={`Open ${claim.claimId}`}
+    >
       <span className="qmain">
         <span className="qtop">
           <span className="id">{claim.claimId}</span>
           <Action action={claim.action} />
         </span>
         <span className="sub">
-          {claim.guardrail ? claim.guardrail : claim.runId}
+          {claim.determination?.guardrail ?? claim.runId}
         </span>
       </span>
       <Phases cells={claim.cells} phases={phases} />
       {ranked && (
         <span className="amt">
-          {claim.priority ? claim.priority.expected_recovery : "—"}
-          {claim.priority && <span className="sm">of {claim.priority.amount_at_stake}</span>}
+          {claim.determination?.priority?.expected_recovery ?? "—"}
+          {claim.determination?.priority && (
+            <span className="sm">of {claim.determination.priority.amount_at_stake}</span>
+          )}
         </span>
       )}
-    </div>
+    </button>
   );
 }
 
-export function Queue({ claims, phases }: { claims: Claim[]; phases: Phase[] }) {
+export function Queue({
+  claims,
+  phases,
+  onOpen,
+}: {
+  claims: QueueEntry[];
+  phases: Phase[];
+  onOpen: (claimId: string) => void;
+}) {
   const { ranked, ruled } = partition(claims);
 
   return (
@@ -85,7 +103,7 @@ export function Queue({ claims, phases }: { claims: Claim[]; phases: Phase[] }) 
         <span className="right">Recovery</span>
       </div>
       {ranked.map((claim) => (
-        <Row key={claim.claimId} claim={claim} ranked phases={phases} />
+        <Row key={claim.claimId} claim={claim} ranked phases={phases} onOpen={onOpen} />
       ))}
 
       {/* Always visible, even when empty: the point is that the agent refused to
@@ -99,7 +117,7 @@ export function Queue({ claims, phases }: { claims: Claim[]; phases: Phase[] }) 
         <span>Phases</span>
       </div>
       {ruled.map((claim) => (
-        <Row key={claim.claimId} claim={claim} ranked={false} phases={phases} />
+        <Row key={claim.claimId} claim={claim} ranked={false} phases={phases} onOpen={onOpen} />
       ))}
       <p className="rulenote">
         A rule decided these. No judgement was exercised and nothing was weighed,
