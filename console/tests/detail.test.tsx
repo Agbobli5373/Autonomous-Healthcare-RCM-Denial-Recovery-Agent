@@ -28,6 +28,7 @@ function claim(overrides: Partial<QueueEntry> = {}): QueueEntry {
       guardrail: null,
       priority: { amount_at_stake: "1250.00", likelihood: 0.45, expected_recovery: "562.50" },
     },
+    determinationDigest: "d".repeat(64),
     claim: claimRecord("CLM-2026-0001"),
     cells: null,
     events: [],

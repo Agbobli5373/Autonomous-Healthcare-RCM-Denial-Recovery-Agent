@@ -7,6 +7,7 @@ import "./shell.css";
 import "./queue.css";
 import "./detail.css";
 import "./inspector.css";
+import "./review.css";
 
 const root = document.getElementById("root");
 if (!root) {

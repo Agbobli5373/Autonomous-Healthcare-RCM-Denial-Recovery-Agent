@@ -5,10 +5,11 @@
  * - it names where a claim was worked and has no screen of its own.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Detail } from "./Detail";
 import { Queue } from "./Queue";
+import { fetchReviews, type Review } from "./reviews";
 import { useQueue } from "./useQueue";
 
 const CONNECTION_TEXT = {
@@ -21,6 +22,13 @@ const CONNECTION_TEXT = {
 export function App() {
   const { claims, phases, connection, runEvents } = useQueue();
   const [openClaimId, setOpenClaimId] = useState<string | null>(null);
+  const [reviews, setReviews] = useState<Map<string, Review>>(new Map());
+
+  // Fetched once on load, and updated in place as verdicts are recorded. A
+  // Review is not something the agent did, so it does not ride the run socket.
+  useEffect(() => {
+    void fetchReviews().then(setReviews);
+  }, []);
   const selected = claims.find((claim) => claim.claimId === openClaimId) ?? null;
 
   return (
@@ -60,6 +68,10 @@ export function App() {
             <Detail
               entry={selected}
               runEvents={runEvents.get(selected.runId) ?? []}
+              review={reviews.get(selected.claimId) ?? null}
+              onReviewed={(recorded) =>
+                setReviews((current) => new Map(current).set(recorded.claim_id, recorded))
+              }
               onClose={() => setOpenClaimId(null)}
             />
           ) : (

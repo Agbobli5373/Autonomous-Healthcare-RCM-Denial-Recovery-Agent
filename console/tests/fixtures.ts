@@ -90,6 +90,7 @@ export function determination(
               priority:
                 options.priority !== undefined ? options.priority : guardrail ? null : SCORED,
             },
+      determination_digest: action === null ? null : "d".repeat(64),
       claim: claimRecord(claimId),
     },
   };

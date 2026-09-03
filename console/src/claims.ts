@@ -77,6 +77,8 @@ export interface Derived {
   action: Action | null;
   guardrailed: boolean;
   determination: Determination | null;
+  /** Over the bytes the run wrote, so the page can name the reading it saw. */
+  determination_digest: string | null;
   claim: Claim | null;
 }
 
@@ -125,6 +127,7 @@ export interface QueueEntry {
   action: Action | null;
   guardrailed: boolean;
   determination: Determination | null;
+  determinationDigest: string | null;
   claim: Claim | null;
   cells: Record<Phase, CellState> | null;
   /**
@@ -166,6 +169,7 @@ export function applyEvent(claims: Map<string, QueueEntry>, message: StreamMessa
     action: message.derived.action,
     guardrailed: message.derived.guardrailed,
     determination: message.derived.determination,
+    determinationDigest: message.derived.determination_digest,
     claim: message.derived.claim,
     cells: message.derived.cells,
     // The derived fields are replaced wholesale; the events accumulate. Both

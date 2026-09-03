@@ -23,19 +23,33 @@ ticket makes it one by leaving this connection open instead of closing it.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
-from rcm_agent.console.replay import replay
+from rcm_agent.console.replay import determinations, replay
+from rcm_agent.domain import Action
 from rcm_agent.matrix import PHASES
+from rcm_agent.review import (
+    StaleReview,
+    all_current_reviews,
+    digest_of,
+    reviewed,
+    store_review,
+)
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 """Where `console/` builds to. Committed, and served as-is."""
 
 DEFAULT_RUNS = Path("runs")
+
+DEFAULT_REVIEWS = Path("reviews")
+"""Outside `runs/`, because a completed run is never appended to."""
 
 
 class ConsoleNotBuilt(RuntimeError):
@@ -47,7 +61,33 @@ class ConsoleNotBuilt(RuntimeError):
     """
 
 
-def create_app(runs_dir: Path | None = None) -> FastAPI:
+class VerdictRequest(BaseModel):
+    """What the browser sends when someone approves or rejects.
+
+    The digest is the page saying *which* Determination it was looking at. A
+    stale tab would otherwise record a verdict against a reading a re-run had
+    already replaced.
+
+    `reviewer` is whatever the person typed. Nothing verifies it - there is no
+    sign-in yet - so it is a signature rather than an identity, and recording an
+    unverified name is still better than the alternative the first version
+    shipped, where every verdict was signed `console` and the record could not
+    answer who approved anything.
+
+    At module scope on purpose: `from __future__ import annotations` makes the
+    handler's annotations strings, and FastAPI resolves them against the module -
+    a class defined inside the factory is invisible there, and the body silently
+    becomes a query parameter.
+    """
+
+    verdict: Literal["approved", "rejected"]
+    reviewer: str
+    reason: str = ""
+    counter_action: Action | None = None
+    determination_digest: str
+
+
+def create_app(runs_dir: Path | None = None, reviews_dir: Path | None = None) -> FastAPI:
     """The console as an app, so it can be tested without a port."""
     if not (STATIC_ROOT / "index.html").is_file():
         raise ConsoleNotBuilt(
@@ -56,6 +96,7 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
         )
 
     root = DEFAULT_RUNS if runs_dir is None else runs_dir
+    reviews_root = DEFAULT_REVIEWS if reviews_dir is None else reviews_dir
     app = FastAPI(title="Denial Recovery Console", docs_url=None, redoc_url=None)
 
     @app.websocket("/events")
@@ -79,6 +120,83 @@ def create_app(runs_dir: Path | None = None) -> FastAPI:
             await socket.receive_text()
         except WebSocketDisconnect:
             return
+
+    @app.get("/reviews")
+    def reviews() -> dict[str, Any]:
+        """The verdict that stands for each claim.
+
+        Fetched rather than streamed: a Review is not something the agent did,
+        and the socket carries a run's events. Putting it there would make the
+        transport describe two different things.
+
+        Each carries whether it still `stands`. A verdict is given for one
+        reading, and a re-run that changes the reading leaves it over what its
+        reviewer actually read - so serving it as current would hand every
+        consumer a sign-off nobody gave. The comparison is made here, once,
+        against the same `authorises` the domain uses; leaving it to the browser
+        would put the safety rule in a second language and let the next consumer
+        of this endpoint inherit the stale verdict in silence.
+        """
+        standing = determinations(root)
+        answer: dict[str, Any] = {}
+        for claim_id, review in all_current_reviews(reviews_root).items():
+            current = standing.get(claim_id)
+            stands = False
+            if current is not None:
+                try:
+                    review.authorises(current["determination"])
+                except StaleReview:
+                    stands = False
+                else:
+                    stands = True
+            answer[claim_id] = {**review.to_dict(), "stands": stands}
+        return answer
+
+    @app.post("/reviews/{claim_id}")
+    def record_verdict(claim_id: str, body: VerdictRequest) -> dict[str, Any]:
+        """Record a verdict against the Determination the reviewer was shown.
+
+        The digest is checked here rather than trusted, because the browser is
+        the one thing that can be looking at yesterday's page.
+        """
+        standing = determinations(root).get(claim_id)
+        if standing is None:
+            raise HTTPException(status_code=404, detail=f"no Determination for {claim_id}")
+
+        # First, before any other complaint. A stale page can be wrong about
+        # everything else too - the Determination it was shown may since have
+        # been replaced by one a rule closed - and telling that reviewer their
+        # rejection needs a reason sends them to fix the wrong thing.
+        if digest_of(standing["determination"]) != body.determination_digest:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "this page was looking at a different Determination. Reload before "
+                    "deciding: a verdict recorded now would be against a reading that "
+                    "has since been replaced."
+                ),
+            )
+
+        try:
+            review = reviewed(
+                claim_id=claim_id,
+                determination=standing["determination"],
+                verdict=body.verdict,
+                reason=body.reason,
+                counter_action=body.counter_action,
+                reviewer=body.reviewer,
+                run_id=standing["run_id"],
+                at=datetime.now(UTC),
+            )
+        except ValueError as exc:
+            # A rejection with no reason, or a claim a rule closed. Both are the
+            # request asking for something that should not exist.
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        store_review(reviews_root, review)
+        # Freshly given for the Determination just checked, so it stands by
+        # construction - said explicitly so one shape comes back from both routes.
+        return {**review.to_dict(), "stands": True}
 
     runs_root = root.resolve()
 

@@ -621,3 +621,227 @@ def test_a_screenshot_that_does_not_exist_is_a_plain_404(tmp_path: Path) -> None
     client = TestClient(create_app(tmp_path))
 
     assert client.get("/runs/2026-01-01T00-00-00Z/screenshots/nope.png").status_code == 404
+
+
+# --- recording a verdict ----------------------------------------------------
+
+
+def review_client(tmp_path: Path):
+    from fastapi.testclient import TestClient
+
+    from rcm_agent.console.server import create_app
+
+    runs = tmp_path / "runs"
+    write_run(
+        runs,
+        "2026-01-01T00-00-00Z",
+        [
+            determination("CLM-2026-0001", "appeal"),
+            determination("CLM-2026-0002", "close", guardrail="unappealable-remark:MA130"),
+        ],
+    )
+    return TestClient(create_app(runs, tmp_path / "reviews")), runs
+
+
+def test_a_verdict_is_recorded_against_the_determination_on_screen(tmp_path: Path) -> None:
+    from rcm_agent.console.replay import determinations
+    from rcm_agent.review import digest_of
+
+    client, runs = review_client(tmp_path)
+    standing = determinations(runs)["CLM-2026-0001"]["determination"]
+
+    response = client.post(
+        "/reviews/CLM-2026-0001",
+        json={
+            "verdict": "approved",
+            "reviewer": "isaac",
+            "determination_digest": digest_of(standing),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["verdict"] == "approved"
+    assert response.json()["determination_digest"] == digest_of(standing)
+
+
+def test_a_page_looking_at_an_older_determination_is_refused(tmp_path: Path) -> None:
+    """The browser is the one thing that can be showing yesterday's reading.
+
+    Recording a verdict from a stale tab is how an approval ends up attached to a
+    Determination nobody approved.
+    """
+    client, _ = review_client(tmp_path)
+
+    response = client.post(
+        "/reviews/CLM-2026-0001",
+        json={"verdict": "approved", "reviewer": "isaac", "determination_digest": "0" * 64},
+    )
+
+    assert response.status_code == 409
+    assert "reload" in response.json()["detail"].lower()
+
+
+def test_a_rejection_without_a_reason_is_refused(tmp_path: Path) -> None:
+    from rcm_agent.console.replay import determinations
+    from rcm_agent.review import digest_of
+
+    client, runs = review_client(tmp_path)
+    standing = determinations(runs)["CLM-2026-0001"]["determination"]
+
+    response = client.post(
+        "/reviews/CLM-2026-0001",
+        json={
+            "verdict": "rejected",
+            "reviewer": "isaac",
+            "determination_digest": digest_of(standing),
+        },
+    )
+
+    assert response.status_code == 422
+    assert "reason" in response.json()["detail"]
+
+
+def test_a_rule_closed_claim_cannot_be_reviewed_through_the_api(tmp_path: Path) -> None:
+    """The console offers no control; this refuses even if a request arrives."""
+    from rcm_agent.console.replay import determinations
+    from rcm_agent.review import digest_of
+
+    client, runs = review_client(tmp_path)
+    standing = determinations(runs)["CLM-2026-0002"]["determination"]
+
+    response = client.post(
+        "/reviews/CLM-2026-0002",
+        json={
+            "verdict": "approved",
+            "reviewer": "isaac",
+            "determination_digest": digest_of(standing),
+        },
+    )
+
+    assert response.status_code == 422
+    assert "rule" in response.json()["detail"]
+
+
+def test_the_standing_verdicts_are_readable(tmp_path: Path) -> None:
+    from rcm_agent.console.replay import determinations
+    from rcm_agent.review import digest_of
+
+    client, runs = review_client(tmp_path)
+    standing = determinations(runs)["CLM-2026-0001"]["determination"]
+    client.post(
+        "/reviews/CLM-2026-0001",
+        json={
+            "verdict": "approved",
+            "reviewer": "isaac",
+            "determination_digest": digest_of(standing),
+        },
+    )
+
+    served = client.get("/reviews").json()["CLM-2026-0001"]
+
+    assert served["verdict"] == "approved"
+    assert served["reviewer"] == "isaac"
+    assert served["stands"] is True
+
+
+def test_a_verdict_a_re_run_has_outlived_is_not_served_as_standing(tmp_path: Path) -> None:
+    """The refusal belongs at the seam, not in the browser.
+
+    A verdict is given for one reading. A re-run that changes the reading leaves
+    it over what its reviewer actually read - and an endpoint that answers "the
+    verdict that stands" without saying otherwise hands every consumer a sign-off
+    nobody gave. Leaving the comparison to the page would put the safety rule in
+    a second language and let the next consumer inherit the stale verdict in
+    silence.
+    """
+    from rcm_agent.console.replay import determinations
+    from rcm_agent.review import digest_of
+
+    client, runs = review_client(tmp_path)
+    standing = determinations(runs)["CLM-2026-0001"]["determination"]
+    client.post(
+        "/reviews/CLM-2026-0001",
+        json={
+            "verdict": "approved",
+            "reviewer": "isaac",
+            "determination_digest": digest_of(standing),
+        },
+    )
+
+    # A later run reaches a different Action on the same claim.
+    write_run(runs, "2026-02-02T00-00-00Z", [determination("CLM-2026-0001", "rebill")])
+    served = client.get("/reviews").json()["CLM-2026-0001"]
+
+    assert served["verdict"] == "approved"
+    assert served["stands"] is False
+
+
+def test_a_stale_page_is_told_to_reload_rather_than_to_fix_its_reason(tmp_path: Path) -> None:
+    """The digest is checked before any other complaint.
+
+    A stale page can be wrong about everything else too. Answering a rejection
+    from an outdated tab with "a rejection must carry a reason" sends the
+    reviewer to fix the wrong thing, and they fix it and record the verdict
+    against the reading that had already been replaced.
+    """
+    client, _ = review_client(tmp_path)
+
+    response = client.post(
+        "/reviews/CLM-2026-0001",
+        json={"verdict": "rejected", "reviewer": "isaac", "determination_digest": "0" * 64},
+    )
+
+    assert response.status_code == 409
+    assert "reload" in response.json()["detail"].lower()
+
+
+def test_an_approval_cannot_smuggle_in_a_counter_action(tmp_path: Path) -> None:
+    """A counter-action belongs to a rejection.
+
+    The screen let one survive: reject, pick an Action, cancel, approve - and the
+    approval carried a disagreement inside it.
+    """
+    from rcm_agent.console.replay import determinations
+    from rcm_agent.review import digest_of
+
+    client, runs = review_client(tmp_path)
+    standing = determinations(runs)["CLM-2026-0001"]["determination"]
+
+    response = client.post(
+        "/reviews/CLM-2026-0001",
+        json={
+            "verdict": "approved",
+            "reviewer": "isaac",
+            "counter_action": "rebill",
+            "determination_digest": digest_of(standing),
+        },
+    )
+
+    assert response.status_code == 422
+    assert "counter-action" in response.json()["detail"]
+
+
+def test_a_claim_no_run_determined_cannot_be_reviewed(tmp_path: Path) -> None:
+    client, _ = review_client(tmp_path)
+
+    response = client.post(
+        "/reviews/CLM-NOPE",
+        json={"verdict": "approved", "reviewer": "isaac", "determination_digest": "0" * 64},
+    )
+
+    assert response.status_code == 404
+
+
+def test_the_determination_digest_travels_with_it(tmp_path: Path) -> None:
+    """So the page can say which reading it was looking at, without computing it.
+
+    A client reproducing the canonical serialisation would be re-deriving the one
+    number whose entire job is to be checkable against the artifact.
+    """
+    from rcm_agent.review import digest_of
+
+    write_run(tmp_path, "2026-01-01T00-00-00Z", [determination("CLM-1", "appeal")])
+
+    derived = list(replay(tmp_path))[-1]["derived"]
+
+    assert derived["determination_digest"] == digest_of(derived["determination"])
