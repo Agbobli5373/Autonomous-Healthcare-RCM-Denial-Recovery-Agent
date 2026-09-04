@@ -271,3 +271,24 @@ def test_the_waking_page_gives_up_gracefully_rather_than_spinning_forever() -> N
 
     assert "Open the console directly" in page
     assert "createElement" in page, "the link is added, and `.status a` is styled for it"
+
+
+def test_every_document_it_ships_is_a_committed_synthetic_fixture() -> None:
+    """No non-synthetic data, established by identity rather than by argument.
+
+    The redaction walks text and does not read binaries, so a PDF is published
+    exactly as it was captured - which is safe precisely because the EOBs are
+    generated. That is a claim about *these* files, so it is checked against
+    them: each document in the example must be byte-identical to the fixture
+    that produced it. A run worked over a real remittance fails here.
+    """
+    fixtures = REPO / "data" / "fixtures" / "eobs"
+    documents = sorted((the_run() / "documents").glob("*.pdf"))
+    assert documents, "the example run shipped no documents"
+
+    for document in documents:
+        source = fixtures / document.name
+        assert source.is_file(), f"{document.name} has no committed fixture behind it"
+        assert sha256_of_bytes(document.read_bytes()) == sha256_of_bytes(source.read_bytes()), (
+            f"{document.name} is not the synthetic fixture it should be"
+        )
