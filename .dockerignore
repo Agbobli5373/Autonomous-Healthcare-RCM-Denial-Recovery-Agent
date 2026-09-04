@@ -1,0 +1,41 @@
+# What must never reach the build context.
+#
+# Defence in depth, not the guarantee. What actually keeps credentials out of
+# the image is the Dockerfile copying five named paths rather than the tree; this
+# is the second line, for the day someone adds a `COPY . .`.
+#
+# `**/` on every pattern, because a bare `.env` is anchored at the context root
+# and would miss a nested one - which is exactly the case a second line of
+# defence exists for.
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/storage-state.json
+
+# Real runs. They are working data, they carry a key fingerprint and portal
+# screenshots, and the hosted console serves the redacted export instead.
+runs/
+reviews/
+**/.venv/
+
+# Everything the console does not need at runtime.
+.git/
+.github/
+.venv/
+console/node_modules/
+console/
+tests/
+# Named one by one rather than excluding `docs/` and adding `!docs/example-run/`
+# back. Re-including a path whose parent directory is excluded is the classic
+# way a .dockerignore silently drops the one thing the build needs, and this
+# build cannot be run here to find out.
+docs/adr/
+docs/agents/
+docs/research/
+docs/hosting/
+.scratch/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/

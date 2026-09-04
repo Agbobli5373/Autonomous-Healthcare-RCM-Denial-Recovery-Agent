@@ -4,9 +4,67 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Denial Recovery Console</title>
+    <!--
+      The shell, drawn before the bundle has parsed, and replaced by React the
+      moment it has. Structure only, and deliberately no prose: this is on
+      screen for a tenth of a second, and a sentence that appears and vanishes
+      in that time reads as a flicker rather than as information.
+
+      The long wait is a different problem with a different answer. A free tier
+      that has gone to sleep takes about half a minute to boot, and no markup
+      served by that instance can help while it is not running; that is what
+      `docs/hosting/waking.html` is for.
+
+      Inline and asset-free on purpose. A skeleton that waited for a stylesheet
+      would be showing nothing during exactly the window it exists to cover.
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        --boot-ground: #fafbfc;
+        --boot-rule: #e3e7ec;
+        --boot-navy: #1b3a6b;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --boot-ground: #0d1015;
+          --boot-rule: #222933;
+          --boot-navy: #8ab0e8;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--boot-ground);
+        font-family:
+          ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      .boot {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        height: 48px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--boot-rule);
+      }
+      .boot span {
+        display: block;
+        width: 20px;
+        height: 20px;
+        border-radius: 5px;
+        background: var(--boot-navy);
+      }
+      .boot b {
+        width: 132px;
+        height: 11px;
+        border-radius: 3px;
+        background: var(--boot-rule);
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot" aria-hidden="true"><span></span><b></b></div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

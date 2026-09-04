@@ -1,0 +1,15 @@
+{
+  "claim_id": "CLM-2026-0001",
+  "action": "appeal",
+  "rationale": "Cascade denied the E0601 CPAP device line CO-197 with remark N706 (missing documentation), stating no prior authorization was on file for the date of service. If an authorization was in fact obtained and covers E0601 on that DOS, an appeal with the auth number and supporting clinical records overturns it; the CO-45 on line 1 is a contractual write-off and needs no action. Evidence list supplied from the catalogue for CO-197: the judgement named none.",
+  "evidence_required": [
+    "Authorization record",
+    "Date of service"
+  ],
+  "guardrail": null,
+  "priority": {
+    "amount_at_stake": "1250.00",
+    "likelihood": 0.45,
+    "expected_recovery": "562.50"
+  }
+}

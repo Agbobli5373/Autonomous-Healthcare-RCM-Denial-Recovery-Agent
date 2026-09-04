@@ -1,0 +1,8 @@
+{
+  "claim_id": "CLM-2026-0002",
+  "action": "close",
+  "rationale": "Remark MA130 carries no appeal rights: the claim was returned as unprocessable rather than adjudicated. A corrected claim, not an appeal.",
+  "evidence_required": [],
+  "guardrail": "unappealable-remark:MA130",
+  "priority": null
+}

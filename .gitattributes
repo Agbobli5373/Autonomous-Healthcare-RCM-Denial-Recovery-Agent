@@ -17,3 +17,9 @@
 # source is LF everywhere, and the built bundle is never converted at all.
 console/** text eol=lf
 src/rcm_agent/console/static/** -text
+
+# The published example run is an artifact, not source. A Review names its
+# Determination by a digest over the exact bytes of `claims/<id>.json`
+# (ADR-0004), so a checkout that rewrote its line endings would make the
+# committed digests wrong on exactly the machines that convert them.
+docs/example-run/** -text

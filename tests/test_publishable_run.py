@@ -95,7 +95,10 @@ def test_numbers_and_nulls_survive_the_walk() -> None:
 # --- the whole run ----------------------------------------------------------
 
 
-def a_run(root: Path, *, with_token: bool = True) -> Path:
+RATIONALE = "because the authorization covered the date of service"
+
+
+def a_run(root: Path, *, with_token: bool = True, rationale: str = RATIONALE) -> Path:
     """A run directory shaped like a real one, carrying what a real one carries."""
     run = root / "2026-01-01T00-00-00Z"
     for name in ("claims", "screenshots", "documents"):
@@ -135,7 +138,7 @@ def a_run(root: Path, *, with_token: bool = True) -> Path:
             "detail": {
                 "claim_id": "CLM-1",
                 "action": "appeal",
-                "rationale": "because the authorization covered the date of service",
+                "rationale": rationale,
                 "evidence_required": ["Authorization record"],
                 "guardrail": None,
                 "priority": {
@@ -153,8 +156,12 @@ def a_run(root: Path, *, with_token: bool = True) -> Path:
         json.dumps({"run_id": run.name, "status": "completed", "summary": {"appeal": 1}}),
         encoding="utf-8",
     )
+    # The claim file is the Determination the run recorded, written the way
+    # `RunDirectory.write_claim` writes it. Two hand-written copies of one
+    # judgement drift, and the digest that names it is taken over these bytes.
+    decided = next(event for event in events if event["kind"] == "determination")["detail"]
     (run / "claims" / "clm-1.json").write_text(
-        json.dumps({"claim_id": "CLM-1", "action": "appeal"}), encoding="utf-8"
+        json.dumps(decided, indent=2) + chr(10), encoding="utf-8", newline=""
     )
     (run / "screenshots" / "0004-log_in.png").write_bytes(b"\x89PNG\r\n\x1a\n not really")
     (run / "documents" / "clm-1-eob.pdf").write_bytes(b"%PDF-1.4 not really")
@@ -304,14 +311,12 @@ def test_an_ordinary_phrase_does_not_make_a_run_unpublishable(tmp_path: Path) ->
     The consequence was not a warning: the export refused *and deleted itself*,
     for a word.
     """
-    run = a_run(tmp_path / "runs")
-    log = run / "events.ndjson"
-    log.write_text(
-        log.read_text(encoding="utf-8").replace(
-            "because the authorization covered the date of service",
-            "a risk-adjusted, task-based review of the disk-backed record",
-        ),
-        encoding="utf-8",
+    # Asked for at the source rather than edited in afterwards: the rationale
+    # is recorded in two places, and rewriting one of them makes a run that
+    # disagrees with itself - which is a different refusal than the one under
+    # test here.
+    run = a_run(
+        tmp_path / "runs", rationale="a risk-adjusted, task-based review of the disk-backed record"
     )
 
     exported = publish(run, tmp_path / "out")
@@ -436,3 +441,76 @@ def test_an_image_is_published_exactly_as_captured(tmp_path: Path) -> None:
     exported = publish(run, tmp_path / "out")
 
     assert (exported / "screenshots" / "0004-log_in.png").read_bytes() == original
+
+
+def test_a_published_claim_hashes_to_the_digest_a_review_would_name(tmp_path: Path) -> None:
+    """The export is the artifact a reader checks, so it has to be checkable.
+
+    A Review names the Determination it was given for by a digest over the exact
+    bytes of `claims/<id>.json`, and the whole justification for that number is
+    that anyone holding the file can recompute it. The export rewrites every
+    text file it copies, and wrote them with the host's newline - so an export
+    made on Windows carried CRLF, the digest was taken over the LF form, and the
+    published artifact did not hash to the number published beside it.
+
+    Same failure as ADR-0004 records for the writer, arriving by the one route
+    that reaches a public artifact rather than a local one.
+    """
+    from rcm_agent.review import digest_of
+    from rcm_agent.transport import sha256_of_bytes
+
+    published = publish(a_run(tmp_path / "runs"), tmp_path / "out")
+
+    for claim in sorted((published / "claims").glob("*.json")):
+        recorded: Any = json.loads(claim.read_text(encoding="utf-8"))
+        assert sha256_of_bytes(claim.read_bytes()) == digest_of(recorded), (
+            f"{claim.name} does not hash to the digest of what it contains"
+        )
+
+
+def test_every_published_text_file_is_byte_identical_on_any_platform(tmp_path: Path) -> None:
+    """An artifact read as a work sample is diffed, hashed and compared.
+
+    One that differs by the operating system it was exported from is a different
+    artifact each time it is produced.
+    """
+    published = publish(a_run(tmp_path / "runs"), tmp_path / "out")
+
+    carriage_returns = [
+        path.name
+        for path in sorted(published.rglob("*"))
+        if path.is_file() and path.suffix in {".json", ".ndjson"} and b"\r" in path.read_bytes()
+    ]
+
+    assert carriage_returns == []
+
+
+def test_it_refuses_a_run_whose_artifact_disagrees_with_what_it_recorded(tmp_path: Path) -> None:
+    """The published digest has to be the digest of the published file.
+
+    A Review names its Determination by a digest, and the console computes that
+    from the `determination` event while a reader recomputes it from
+    `claims/<id>.json`. Those are two recordings of one judgement and they were
+    unified deliberately - but a run directory outlives the code that wrote it,
+    and an older one recorded a detail missing `claim_id` while its claims file
+    carried it. Exported, that ships a public artifact whose published digest
+    does not match its published file: ADR-0004's central claim, false in the
+    one place a reviewer would check it.
+
+    Refused here rather than explained in a caveat, because an export is the
+    artifact that gets trusted.
+    """
+    run = a_run(tmp_path / "runs")
+    stale = json.loads((run / "claims" / "clm-1.json").read_text(encoding="utf-8"))
+    stale["rationale"] = "a rationale the recorded event never mentioned"
+    (run / "claims" / "clm-1.json").write_text(json.dumps(stale), encoding="utf-8")
+
+    with pytest.raises(UnsafeToPublish, match="does not match"):
+        publish(run, tmp_path / "out")
+
+
+def test_a_run_whose_artifact_agrees_is_published(tmp_path: Path) -> None:
+    """The fixture's claim file is what the run recorded, so it goes."""
+    published = publish(a_run(tmp_path / "runs"), tmp_path / "out")
+
+    assert (published / "claims" / "clm-1.json").is_file()
