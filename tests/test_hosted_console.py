@@ -1,8 +1,8 @@
 """The console as something a stranger opens on the internet.
 
 Everything here is about the difference between running this locally and putting
-it where a reviewer can reach it. Three properties matter and none of them is
-about features.
+it where a reader can reach it. Four properties matter and none of them is about
+features.
 
 **Nothing credential-shaped ships.** The sandbox archive already gets this check
 (`test_no_credential_travels_to_the_guest`); the exported run is the other
@@ -15,9 +15,13 @@ host ever sees it. The routes are enumerated rather than described, because a
 route added later is exactly the thing a prose promise fails to notice.
 
 **The published digest describes the published file.** A Review names its
-Determination by a digest, and the hosted console is the one place a reviewer
-would recompute it. If the committed artifact does not hash to the number shown
-beside it, ADR-0004's central claim is false in public.
+Determination by a digest, and the hosted console is the one place a reader would
+recompute it. If the committed artifact does not hash to the number shown beside
+it, ADR-0004's central claim is false in public.
+
+**Nothing non-synthetic ships.** The redaction walks text and never reads a
+binary, which is safe precisely because the documents are generated - so that is
+checked by identity against the fixtures rather than argued from the design.
 """
 
 from __future__ import annotations
@@ -271,3 +275,24 @@ def test_the_waking_page_gives_up_gracefully_rather_than_spinning_forever() -> N
 
     assert "Open the console directly" in page
     assert "createElement" in page, "the link is added, and `.status a` is styled for it"
+
+
+def test_every_document_it_ships_is_a_committed_synthetic_fixture() -> None:
+    """No non-synthetic data, established by identity rather than by argument.
+
+    The redaction walks text and does not read binaries, so a PDF is published
+    exactly as it was captured - which is safe precisely because the EOBs are
+    generated. That is a claim about *these* files, so it is checked against
+    them: each document in the example must be byte-identical to the fixture
+    that produced it. A run worked over a real remittance fails here.
+    """
+    fixtures = REPO / "data" / "fixtures" / "eobs"
+    documents = sorted((the_run() / "documents").glob("*.pdf"))
+    assert documents, "the example run shipped no documents"
+
+    for document in documents:
+        source = fixtures / document.name
+        assert source.is_file(), f"{document.name} has no committed fixture behind it"
+        assert document.read_bytes() == source.read_bytes(), (
+            f"{document.name} is not the synthetic fixture it should be"
+        )
