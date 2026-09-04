@@ -1,0 +1,45 @@
+# Two services, because the demo needs one that sleeps and one that does not.
+#
+# The console runs on a free tier that goes to sleep. That is the design, not a
+# limitation absorbed: the disk resets when the instance wakes, so the verdicts
+# one Reviewer records clear themselves and the next arrives at a clean queue.
+# It is why the volume must be writable and not persistent — there is no `disk:`
+# here on purpose — and why there is no "reset demo" control, which would have
+# existed only in the hosted build and would be a small lie in a product
+# surface.
+#
+# The cold start that buys is about half a minute, during which the console
+# serves nothing at all, because it is not running. So the link a reader opens
+# is the **waking page**, a static site that never sleeps: it paints
+# immediately, polls the console's `/healthz`, and forwards when it answers.
+# Deploying only the console would leave the blank tab this arrangement exists
+# to prevent.
+#
+# No credentials. `envVars` is empty and stays empty; nothing here can start a
+# run, and the console serves an exported run the agent finished long ago.
+
+services:
+  - type: web
+    name: denial-recovery-console
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    autoDeploy: true
+    # Render runs this when a deploy goes out, to decide whether the new
+    # instance is live. If it ever turns out to be polled on a schedule as well,
+    # delete it: an instance kept awake never resets its disk, and the verdicts
+    # would stop clearing themselves, which is the whole arrangement.
+    healthCheckPath: /healthz
+    envVars: []
+
+  - type: web
+    name: denial-recovery-waking
+    runtime: static
+    # One self-contained file. `waking.html` is served as the index so the link
+    # a reader opens is the front door rather than a filename.
+    staticPublishPath: ./docs/hosting
+    autoDeploy: true
+    routes:
+      - type: rewrite
+        source: /
+        destination: /waking.html

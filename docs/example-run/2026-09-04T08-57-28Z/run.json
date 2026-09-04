@@ -1,0 +1,13 @@
+{
+  "run_id": "2026-09-04T08-57-28Z",
+  "started_at": "2026-09-04T08:57:28.969792+00:00",
+  "status": "completed",
+  "current_phase": "analysis",
+  "finished_at": "2026-09-04T09:03:25.856777+00:00",
+  "failed_at": null,
+  "summary": {
+    "appeal": 1,
+    "close": 1,
+    "rebill": 1
+  }
+}

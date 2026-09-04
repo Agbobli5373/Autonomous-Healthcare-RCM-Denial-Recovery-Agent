@@ -112,6 +112,12 @@ def _build_parser() -> argparse.ArgumentParser:
     console_ui.add_argument(
         "--runs-dir", type=Path, default=Path("runs"), help="Where run directories live"
     )
+    console_ui.add_argument(
+        "--reviews-dir",
+        type=Path,
+        default=Path("reviews"),
+        help="Where verdicts are recorded (a scratch disk, when hosted)",
+    )
 
     publishable = sub.add_parser(
         "publishable-run",
@@ -398,17 +404,29 @@ def publishable_run_command(run: Path, out_dir: Path) -> int:
     return 0
 
 
-def console_command(host: str, port: int, *, runs_dir: Path, open_browser: bool = True) -> int:
+def console_command(
+    host: str,
+    port: int,
+    *,
+    runs_dir: Path,
+    reviews_dir: Path,
+    open_browser: bool = True,
+) -> int:
     """Serve the console's committed bundle.
 
     No build step, and no Node. The JavaScript toolchain in `console/` exists
     for developing this page; a reviewer types this command and nothing else.
+
+    The same command serves the hosted demo, pointed at the committed example
+    run and a scratch disk for verdicts. One command rather than a hosted-only
+    mode: a surface that exists only when deployed is a surface nobody develops
+    against.
     """
     from rcm_agent.console.server import ConsoleNotBuilt, create_app
 
     display = Console()
     try:
-        app = create_app(runs_dir)
+        app = create_app(runs_dir, reviews_dir)
     except ConsoleNotBuilt as exc:
         display.print(f"[bold red]{exc}[/]")
         return EXIT_BAD_INPUT
@@ -741,7 +759,11 @@ def main(argv: list[str] | None = None) -> int:
         return publishable_run_command(args.run, args.out)
     if args.command == "console":
         return console_command(
-            args.host, args.port, runs_dir=args.runs_dir, open_browser=not args.no_open
+            args.host,
+            args.port,
+            runs_dir=args.runs_dir,
+            reviews_dir=args.reviews_dir,
+            open_browser=not args.no_open,
         )
     if args.command == "determine-all":
         return determine_all_command(args.runs_dir, plain=args.plain, local=args.local)

@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Denial Recovery Console — waking up</title>
+    <!--
+      The front door, for the half-minute a sleeping free tier takes to boot.
+
+      This is the link a reviewer opens. It is hosted somewhere that never
+      sleeps and is one self-contained file with no build step and no requests
+      for assets, so it paints on the first byte. It then polls the console's
+      `/healthz` and forwards as soon as it answers.
+
+      The instance itself cannot solve this. While it is asleep it serves
+      nothing, so a reviewer arriving from an application meets a blank tab and
+      concludes the demo is broken — which is the failure this page exists to
+      prevent, and the reason it lives on a different host rather than in the
+      bundle.
+
+      The waiting is not hidden. It says how long, why, and what will be there,
+      because a wait a reader understands is a different experience from the
+      same wait spent wondering whether anything is happening.
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        --ground: #fafbfc;
+        --surface: #ffffff;
+        --rule: #e3e7ec;
+        --ink: #12161c;
+        --ink-2: #4a5462;
+        --ink-3: #77818f;
+        --navy: #1b3a6b;
+        --navy-soft: #e8eef7;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ground: #0d1015;
+          --surface: #141920;
+          --rule: #222933;
+          --ink: #e7ebf1;
+          --ink-2: #b3bcc8;
+          --ink-3: #8892a0;
+          --navy: #8ab0e8;
+          --navy-soft: #1a2434;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--ground);
+        color: var(--ink);
+        font-family:
+          ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.55;
+      }
+      main {
+        width: 100%;
+        max-width: 33rem;
+        background: var(--surface);
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+        padding: 28px 30px 26px;
+      }
+      .top {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+      .mark {
+        width: 22px;
+        height: 22px;
+        border-radius: 5px;
+        background: var(--navy);
+        color: var(--ground);
+        font-size: 13px;
+        font-weight: 700;
+        display: grid;
+        place-items: center;
+      }
+      .wordmark {
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 1.15rem;
+        letter-spacing: -0.01em;
+      }
+      p {
+        margin: 0 0 14px;
+        color: var(--ink-2);
+        font-size: 0.92rem;
+      }
+      ul {
+        margin: 0 0 16px;
+        padding-left: 18px;
+        color: var(--ink-2);
+        font-size: 0.92rem;
+      }
+      li {
+        margin-bottom: 4px;
+      }
+      .bar {
+        height: 3px;
+        border-radius: 2px;
+        background: var(--navy-soft);
+        overflow: hidden;
+        margin-bottom: 12px;
+      }
+      .bar i {
+        display: block;
+        height: 100%;
+        width: 30%;
+        border-radius: 2px;
+        background: var(--navy);
+        animation: sweep 1.7s ease-in-out infinite;
+      }
+      @keyframes sweep {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(340%);
+        }
+      }
+      /* The bar reports that something is still happening, which is the one
+         thing a reader cannot otherwise tell. Someone who has asked for less
+         motion gets the same report as text instead. */
+      @media (prefers-reduced-motion: reduce) {
+        .bar i {
+          animation: none;
+          width: 100%;
+        }
+      }
+      .status {
+        color: var(--ink-3);
+        font-size: 0.82rem;
+        margin: 0;
+      }
+      .status a {
+        color: var(--navy);
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.86em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="top">
+        <span class="mark" aria-hidden="true">R</span>
+        <span class="wordmark">Denial Recovery</span>
+      </div>
+
+      <h1>Waking the console up.</h1>
+      <p>
+        This runs on a free tier that sleeps when nobody is using it, so the first visit takes
+        about half a minute. It opens on its own.
+      </p>
+
+      <p>What you will be looking at:</p>
+      <ul>
+        <li>Three denied claims an agent worked, reaching three different Actions.</li>
+        <li>One of them closed by a rule rather than judged — the agent refusing to appeal.</li>
+        <li>An inspector showing how each decision was reached, read from what the run recorded.</li>
+        <li>Approve and Reject, which genuinely record a verdict.</li>
+      </ul>
+
+      <div class="bar" aria-hidden="true"><i></i></div>
+      <p class="status" id="status" role="status">Checking whether it is up…</p>
+    </main>
+
+    <script>
+      // The console's origin. **Set this to the deployed URL**; Render suffixes
+      // a name that is already taken, so this is a placeholder until a deploy
+      // says otherwise. Getting it wrong is survivable rather than silent: the
+      // page offers the address as a link once it has waited long enough that
+      // something is evidently wrong.
+      var CONSOLE_ORIGIN = "https://denial-recovery-console.onrender.com";
+
+      // A `?console=` override exists so this page can be pointed at a console
+      // on this machine while it is being worked on — that is how it was
+      // verified — and it is accepted only for a local address.
+      //
+      // Unrestricted it is an open redirect: a public page on a trusted domain
+      // that forwards anywhere a link says, which is a phishing primitive
+      // handed out for free. The convenience is worth one regular expression;
+      // it is not worth that.
+      function localOnly(asked) {
+        try {
+          var parsed = new URL(asked);
+          var host = parsed.hostname;
+          if (host === "localhost" || host === "127.0.0.1" || host === "[::1]") {
+            return parsed.origin;
+          }
+        } catch (ignored) {
+          /* not a URL at all */
+        }
+        return null;
+      }
+
+      (function () {
+        var asked = new URLSearchParams(location.search).get("console");
+        var chosen = asked ? localOnly(asked) : null;
+        var origin = (chosen || CONSOLE_ORIGIN).replace(/\/+$/, "");
+        var status = document.getElementById("status");
+        var started = Date.now();
+
+        function seconds() {
+          return Math.round((Date.now() - started) / 1000);
+        }
+
+        function poll() {
+          // `no-cors` would resolve on anything, including the platform's own
+          // "not running" page, and would forward to a console that is not
+          // there. `/healthz` answers with an allow-origin header precisely so
+          // this can read the status and be sure.
+          fetch(origin + "/healthz", { cache: "no-store" })
+            .then(function (answer) {
+              if (!answer.ok) {
+                throw new Error(String(answer.status));
+              }
+              status.textContent = "Awake. Opening the console…";
+              location.replace(origin + "/");
+            })
+            .catch(function () {
+              var waited = seconds();
+              if (waited < 45) {
+                status.textContent = "Still starting up — " + waited + "s.";
+              } else {
+                // Past the point where waking explains it. Retrying silently
+                // forever reads exactly like the blank page this page exists to
+                // replace, so hand over the address and let the reader decide.
+                status.textContent = "Still starting up — " + waited + "s. Longer than usual. ";
+                var direct = document.createElement("a");
+                direct.href = origin + "/";
+                direct.textContent = "Open the console directly";
+                status.appendChild(direct);
+              }
+              setTimeout(poll, 2000);
+            });
+        }
+
+        poll();
+      })();
+    </script>
+  </body>
+</html>

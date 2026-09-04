@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -137,7 +137,10 @@ def create_app(runs_dir: Path | None = None, reviews_dir: Path | None = None) ->
 
     root = DEFAULT_RUNS if runs_dir is None else runs_dir
     reviews_root = DEFAULT_REVIEWS if reviews_dir is None else reviews_dir
-    app = FastAPI(title="Denial Recovery Console", docs_url=None, redoc_url=None)
+    # The schema route goes with the docs routes it feeds. Closing two of three
+    # left `/openapi.json` describing every endpoint of a public demo, which is
+    # not what turning the documentation off meant.
+    app = FastAPI(title="Denial Recovery Console", docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.websocket("/events")
     async def events(socket: WebSocket, after: Annotated[list[str] | None, Query()] = None) -> None:
@@ -186,6 +189,20 @@ def create_app(runs_dir: Path | None = None, reviews_dir: Path | None = None) ->
             return
         finally:
             left.cancel()
+
+    @app.get("/healthz")
+    def healthz() -> Response:
+        """Awake, and able to answer.
+
+        Polled by the waking page while a sleeping free tier boots, which is a
+        page on another origin - so this one route says so. It is a fixed string
+        and reveals nothing; no other route is opened up.
+        """
+        return Response(
+            content='{"status":"awake"}',
+            media_type="application/json",
+            headers={"access-control-allow-origin": "*", "cache-control": "no-store"},
+        )
 
     @app.get("/reviews")
     def reviews() -> dict[str, Any]:

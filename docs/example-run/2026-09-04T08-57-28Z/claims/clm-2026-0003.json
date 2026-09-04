@@ -1,0 +1,14 @@
+{
+  "claim_id": "CLM-2026-0003",
+  "action": "rebill",
+  "rationale": "Cascade returned OA-22 with remark MA04 (secondary payment cannot be considered without the identity of or payment information from the primary payer) on the E1392 line \u2014 another plan is primary, so this is not a denial on the merits and there is nothing to appeal. Verify the primary carrier and bill it first, then submit to Cascade as secondary with the primary's EOB/remittance attached.",
+  "evidence_required": [
+    "Ware"
+  ],
+  "guardrail": null,
+  "priority": {
+    "amount_at_stake": "210.00",
+    "likelihood": 0.7,
+    "expected_recovery": "147.00"
+  }
+}

@@ -250,6 +250,46 @@ and the fixtures are synthetic precisely so that is safe.
 The same artifact is what the repository commits and what a hosted console
 serves, so there is one thing to inspect and one thing to trust.
 
+The export refuses more than it copies. It will not publish a run that never
+finished, one that still carries a credential-shaped string, or one whose
+`claims/<id>.json` does not hash to the digest its recorded Determination
+carries — because that digest is what a Review names, and publishing a number
+beside an artifact it does not describe is the one thing an exported run must
+not do.
+
+### Hosting it
+
+The hosted console is the same command a reviewer runs locally, pointed at the
+committed export and a scratch disk:
+
+```bash
+uv run rcm-agent console --runs-dir docs/example-run --reviews-dir /tmp/reviews
+```
+
+That is what [`Dockerfile`](./Dockerfile) runs. One command rather than a hosted
+mode, because a surface that exists only when deployed is a surface nobody
+develops against.
+
+**The instance is meant to sleep.** Its disk resets on wake, so the verdicts one
+Reviewer records clear themselves and the next arrives at a clean queue. That is
+why the volume has to be writable and not persistent, and why there is no "reset
+demo" button — a control that existed only in the hosted build would be a small
+lie to tell in a product surface.
+
+**Nothing there can start a run.** No Solari and no model credentials are
+deployed: the `Dockerfile` copies five named paths rather than the tree, and
+`.env` is under none of them; `.dockerignore` is the second line rather than the
+guarantee. `tests/test_hosted_console.py` enumerates the served routes rather
+than promising anything about them.
+
+**The cold start is designed rather than absorbed.** Waking takes about half a
+minute, during which the instance serves nothing at all — so
+[`docs/hosting/waking.html`](./docs/hosting/waking.html) is a single
+self-contained file, hosted somewhere that does not sleep, which paints
+immediately, says what the wait is for, polls `/healthz`, and forwards when the
+console answers. Someone arriving from an application and meeting a blank tab
+concludes the demo is broken.
+
 ## Where things are
 
 | | |
@@ -258,6 +298,8 @@ serves, so there is one thing to inspect and one thing to trust.
 | Architecture decisions | [`docs/adr/`](./docs/adr/) |
 | Research behind the decisions | [`docs/research/`](./docs/research/) |
 | The console's front end | [`console/`](./console/) (built output lives in `src/rcm_agent/console/static/`) |
+| The run the hosted console serves | [`docs/example-run/`](./docs/example-run/) |
+| Deployment | [`Dockerfile`](./Dockerfile), [`render.yaml`](./render.yaml), [`docs/hosting/`](./docs/hosting/) |
 | The plan, as issues | [decision map](https://github.com/Agbobli5373/Autonomous-Healthcare-RCM-Denial-Recovery-Agent/issues/1) |
 
 ## Development

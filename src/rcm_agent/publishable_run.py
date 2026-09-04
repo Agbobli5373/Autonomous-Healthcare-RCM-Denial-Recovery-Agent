@@ -31,6 +31,10 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from rcm_agent.fixtures.naming import claim_filename
+from rcm_agent.run_directory import claim_json
+from rcm_agent.transport import sha256_of_bytes
+
 REDACTED = "[redacted]"
 
 _BINARY_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip", ".gz"})
@@ -183,7 +187,16 @@ def publish(run: Path, out_dir: Path) -> Path:
         shutil.rmtree(destination, ignore_errors=True)
         raise UnsafeToPublish(f"{run.name} could not be rewritten: {exc}") from exc
 
-    _refuse_if_anything_remains(destination)
+    # A refusal takes the directory with it. A half-written export is the worst
+    # thing to leave behind - it looks like an export and is not one - and that
+    # was already true of the rewrite failing; it is just as true of a guard
+    # refusing after the copy.
+    try:
+        refuse_if_credential_shaped(destination)
+        _refuse_if_the_artifact_disagrees(destination)
+    except UnsafeToPublish:
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
     return destination
 
 
@@ -197,12 +210,19 @@ def _state(run: Path) -> dict[str, Any]:
     return loaded  # pyright: ignore[reportUnknownVariableType]
 
 
+def _write(path: Path, text: str) -> None:
+    """Write the same bytes wherever the export is produced.
+
+    `newline=""` for the reason ADR-0004 gives the writer: the default
+    translates newlines to the host's, so an export made on Windows carried CRLF
+    and did not hash to the digest published beside it.
+    """
+    path.write_text(text, encoding="utf-8", newline="")
+
+
 def _rewrite_lines(path: Path) -> None:
     lines = path.read_text(encoding="utf-8").splitlines()
-    path.write_text(
-        "".join(f"{json.dumps(redact(json.loads(line)))}\n" for line in lines if line),
-        encoding="utf-8",
-    )
+    _write(path, "".join(json.dumps(redact(json.loads(line))) + "\n" for line in lines if line))
 
 
 def _rewrite_text(path: Path) -> None:
@@ -216,12 +236,16 @@ def _rewrite_text(path: Path) -> None:
         text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         return
-    path.write_text(_redact_text(text), encoding="utf-8")
+    _write(path, _redact_text(text))
 
 
 def _rewrite_json(path: Path) -> None:
     loaded: Any = json.loads(path.read_text(encoding="utf-8"))
-    path.write_text(json.dumps(redact(loaded), indent=2) + "\n", encoding="utf-8")
+    # `claim_json`, not a third copy of it. ADR-0004: the serialisation is
+    # written once and both the writer and the digest call it, because two
+    # copies are joined by nothing but coincidence - and this one produces the
+    # published file a reader hashes.
+    _write(path, claim_json(redact(loaded)))
 
 
 _ANY_FINGERPRINT = re.compile(r"\(\d+ chars\)")
@@ -235,7 +259,7 @@ whose head had been reformatted out from under the rewrite.
 """
 
 
-def _refuse_if_anything_remains(published: Path) -> None:
+def refuse_if_credential_shaped(published: Path) -> None:
     """Read the export back and refuse to hand over one that still carries a key.
 
     The same check the sandbox archive gets, given to the artifact that actually
@@ -262,3 +286,54 @@ def _refuse_if_anything_remains(published: Path) -> None:
                     f"{path.name} still carries {what} after redaction. The export was "
                     "removed rather than handed over."
                 )
+
+
+def _refuse_if_the_artifact_disagrees(published: Path) -> None:
+    """Every `claims/<id>.json` must hash to the digest of what the run recorded.
+
+    A Determination is written down twice - as the `determination` event and as
+    the claim file - and a Review names it by a digest the console takes from
+    the first while a reader recomputes it from the second. They were unified
+    deliberately, but a run directory outlives the code that wrote it: an older
+    one recorded a detail carrying no `claim_id` while its claim file carried
+    one, so the two hash differently.
+
+    Published, that is ADR-0004's central claim - anyone holding the artifact
+    can recompute the number - being false in the one place a reviewer would
+    check it. Refused rather than shipped with a caveat, because the point of an
+    export is that it can be trusted without one.
+    """
+    from rcm_agent.review import digest_of
+
+    log = published / "events.ndjson"
+    if not log.is_file():
+        return
+
+    for line in log.read_text(encoding="utf-8").splitlines():
+        if not line:
+            continue
+        try:
+            recorded: dict[str, Any] = json.loads(line)
+        except ValueError:
+            continue
+        if recorded.get("kind") != "determination":
+            continue
+        claim_id = recorded.get("claim_id")
+        if not isinstance(claim_id, str):
+            continue
+
+        artifact = published / "claims" / claim_filename(claim_id)
+        if not artifact.is_file():
+            raise UnsafeToPublish(
+                f"{published.name} recorded a Determination for {claim_id} but has no "
+                f"{artifact.name}. The digest a Review names would have nothing to check."
+            )
+        on_file = sha256_of_bytes(artifact.read_bytes())
+        recorded_digest = digest_of(recorded.get("detail") or {})
+        if on_file != recorded_digest:
+            raise UnsafeToPublish(
+                f"{artifact.name} does not match the Determination the run recorded for "
+                f"{claim_id}: the file hashes to {on_file[:12]} and the recorded event to "
+                f"{recorded_digest[:12]}. Publishing would put a digest beside an artifact "
+                "it does not describe."
+            )

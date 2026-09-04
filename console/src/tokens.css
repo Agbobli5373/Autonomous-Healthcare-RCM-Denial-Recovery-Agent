@@ -7,6 +7,12 @@
    it went, and the handful of rules actually relied on are written out below.
    It can come back the day a screen genuinely wants utilities. */
 
+/* Two small palettes are copied from this one by hand, because each has to paint
+   before any stylesheet has loaded and neither can import: the boot skeleton in
+   `console/index.html`, and `docs/hosting/waking.html`, which is served from a
+   different host entirely. Change a colour here and those are the two places
+   that will not follow. */
+
 *,
 *::before,
 *::after {
