@@ -39,9 +39,9 @@ def test_every_command_it_tells_you_to_run_exists() -> None:
 
     unknown: list[str] = []
     for command in named:
-        with pytest.raises(SystemExit) as exit_code:
+        with pytest.raises(SystemExit) as raised:
             main([command, "--help"])
-        if exit_code.value.code != 0:
+        if raised.value.code != 0:
             unknown.append(command)
 
     assert unknown == [], f"the README names commands the CLI does not have: {unknown}"

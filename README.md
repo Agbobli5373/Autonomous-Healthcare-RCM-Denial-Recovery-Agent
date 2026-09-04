@@ -7,25 +7,50 @@ Cloud Browser and Sandbox primitives.
 ## Look at it without running anything
 
 One run's artifacts are committed, and the console opens them with the same code
-that opens a live one. No credentials, no network, nothing to provision:
+that opens a live one. No credentials and nothing to provision:
 
 ```bash
+git clone https://github.com/Agbobli5373/Autonomous-Healthcare-RCM-Denial-Recovery-Agent
+cd Autonomous-Healthcare-RCM-Denial-Recovery-Agent
 uv sync
 uv run rcm-agent console --runs-dir docs/example-run
 ```
 
-Three denied claims, each reaching a different Action — **appeal**, **rebill**,
-and one **closed by a rule** rather than judged, which is the agent declining to
-appeal an unappealable denial. Open a claim and the inspector shows how each
-decision was reached: which guardrails ran, what the model was offered and what
-was withheld from it, the facts it was given and what came back.
+Three refusals of three different kinds, each needing a different answer — which
+is the argument, because an agent that appealed all three would be wrong twice:
 
-The Determination digest shown beside a recorded verdict is over the exact bytes
-of the committed file, so it can be checked:
+| Claim | What the payer said | Action |
+| --- | --- | --- |
+| `CLM-2026-0001` | `CO-197` + `N706` — no prior authorization on file | **appeal** |
+| `CLM-2026-0002` | `CO-16` + `MA130` — **Unprocessable**: looks like a Denial and carries no appeal rights | **close**, by a Guardrail |
+| `CLM-2026-0003` | `OA-22` + `MA04` — another payer is primary | **rebill** |
+
+The middle one is the trap. `CONTEXT.md` names it: an Unprocessable claim *looks*
+like a Denial, so an agent optimising for appeals files one that cannot be heard.
+Here a Guardrail fixes the Action before any model is asked — the inspector shows
+which rules ran and that no model was consulted at all.
+
+Open a Claim and the inspector shows how each Determination was reached: which
+Guardrails ran, what the model was offered and what was withheld from it, the
+facts it was given and what came back.
+
+Record a Verdict on one and the digest shown beside it is over the exact bytes of
+the committed file, so it can be checked:
 
 ```bash
-sha256sum docs/example-run/*/claims/clm-2026-0003.json   # shasum -a 256, on macOS
+sha256sum docs/example-run/*/claims/clm-2026-0003.json   # shasum -a 256 on macOS
+Get-FileHash docs\example-run\*\claims\clm-2026-0003.json -Algorithm SHA256   # PowerShell
 ```
+
+**What this run does not contain.** It is `determine-all` output: extraction and
+analysis. There is no payer portal, no practice-management system, no browser
+work and no session recovery in it, so the inspector's browser-work panel says so
+rather than showing captures. The two-browser leg is what `rcm-agent browse`
+does, and putting it end to end with this is [#38](https://github.com/Agbobli5373/Autonomous-Healthcare-RCM-Denial-Recovery-Agent/issues/38).
+The run also carries one handled `error` at `seq 14`: the model's judgement named
+no evidence for `appeal`, and the agent fell back to the catalogue's evidence
+list rather than failing the Claim. It is in the log because that is what
+happened.
 
 ## Running it for real
 
@@ -55,9 +80,10 @@ a scan, so it goes through OCR — and reaches a Determination on every claim.
 It writes a run directory as it goes, and `console` opens it.
 
 The setup budget is fifteen minutes and `uv sync` is most of it, on a cold
-cache. What has actually been measured on this side of it: the console answers in
-**under three seconds**, and a full `determine-all` over the three claims takes
-**three to five minutes**, nearly all of it waiting on the sandbox and the model.
+cache. Past that, the committed run records its own timing: `run.json` says
+`08:57:28` to `09:03:25`, so **five minutes and fifty-seven seconds** for three
+Claims, nearly all of it waiting on the sandbox and the model. The console
+answers in under three seconds.
 
 `rcm-agent run` is **still a scripted event sequence**, not the agent: it
 exercises the run directory and the progress panel. The end-to-end orchestration
@@ -119,8 +145,10 @@ carries one. That is the mechanism; these are the findings on **this** run:
 
 - **No key, token, URL, email address or fingerprint** appears anywhere in its
   text — `events.ndjson`, the three `claims/*.json`, or `run.json`.
-- **No person.** Patients appear only as `PAT-33947`, `PAT-40219`, `PAT-51884`,
-  and the one payer, Cascade Health Plan, is invented.
+- **No person.** Every patient-bearing field in the run holds a synthetic code —
+  `PAT-33947`, `PAT-40219`, `PAT-51884` — and no name appears anywhere. Cascade
+  Health Plan is an invented Payer; that one is a statement about the fixtures
+  rather than a check on the artifact.
 - **Every document is a committed synthetic fixture**, byte for byte: each PDF
   hashes equal to its source under `data/fixtures/eobs/`. The redaction walks
   text and does not read binaries, so this is checked by identity rather than
@@ -138,20 +166,31 @@ work rather than appeal work. The agent chooses exactly one of **appeal**,
 fix that Action without reference to any score, because sometimes the law or the
 contract leaves no judgement to exercise. [ADR-0002](./docs/adr/0002-determination-replaces-recoverability-score.md).
 
-**FR-3 and Goal 2 — the Desktop primitive is out.** It is unavailable on the Free
-tier, and the Free tier was chosen deliberately over the $20/mo Starter plan. So
-the demo exercises **two of the three primitives** — Cloud Browser and Sandbox —
-and the practice-management system is a web EMR in a browser session rather than
-a desktop application.
+**FR-3 and Goal 2 — the Desktop primitive is out.** Not because it is missing
+from the Free tier, but because it *shares the single sandbox concurrency slot*:
+[the capability research](./docs/research/solari-platform-capabilities.md) found
+that VMs and Desktops appear to count against the same limit, so a workflow
+holding a Sandbox and a Desktop open together does not fit. This demo holds a
+Sandbox for the whole run — it hosts both mocks — so a Desktop cannot sit beside
+it, and the Free tier was chosen deliberately over the $20/mo Starter plan. The
+demo therefore exercises **two of the three primitives**, and the
+practice-management system is a web EMR in a browser session rather than a
+desktop application. (The [build plan](https://github.com/Agbobli5373/Autonomous-Healthcare-RCM-Denial-Recovery-Agent/issues/1)
+records this as "unavailable on the Free tier", which is the shorthand rather
+than the finding.)
 
 **FR-1 — no CAPTCHA solving and no bot-detection evasion.** Not attempted, and
 not a gap in the implementation: **no payer portal permits automated access at
-all.** That is why the portal here is a mock rather than a real one, and it is
-the honest shape of this problem rather than a shortcut around it.
+all** — see [the sandbox survey](./docs/research/payer-portal-sandboxes.md). That
+is why the portal here is a mock rather than a real one, and it is the honest
+shape of this problem rather than a shortcut around it. Ruled out on the
+[build plan](https://github.com/Agbobli5373/Autonomous-Healthcare-RCM-Denial-Recovery-Agent/issues/1)
+before charting began.
 
 **Deliverables — a standalone repository rather than a fork of
-`solari-cookbook`.** The work is a project with its own domain model, ADRs and
-test suite; carrying that as a fork would have obscured what is new.
+`solari-cookbook`.** The work is a project with its own domain model, its own
+[ADRs](./docs/adr/) and its own test suite; carrying that as a fork would have
+obscured what is new.
 
 ## The two mock systems
 
